@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		C0DEC0DE0000000000000001 /* LocalGovernmentCodeJapan_Knowledge.csv in Resources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE0000000000000002 /* LocalGovernmentCodeJapan_Knowledge.csv */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		94AD80A9303A88740016FA7C /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -27,6 +31,7 @@
 		94AD8099303A88720016FA7C /* WAGhack.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WAGhack.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		94AD80A8303A88740016FA7C /* WAGhackTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WAGhackTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		94AD80B2303A88740016FA7C /* WAGhackUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WAGhackUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0DEC0DE0000000000000002 /* LocalGovernmentCodeJapan_Knowledge.csv */ = {isa = PBXFileReference; lastKnownFileType = text; name = LocalGovernmentCodeJapan_Knowledge.csv; path = ../LocalGovernmentCodeJapan_Knowledge.csv; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -75,6 +80,7 @@
 		94AD8090303A88710016FA7C = {
 			isa = PBXGroup;
 			children = (
+				C0DEC0DE0000000000000002 /* LocalGovernmentCodeJapan_Knowledge.csv */,
 				94AD809B303A88720016FA7C /* WAGhack */,
 				94AD80AB303A88740016FA7C /* WAGhackTests */,
 				94AD80B5303A88740016FA7C /* WAGhackUITests */,
@@ -187,10 +193,10 @@
 				};
 			};
 			buildConfigurationList = 94AD8094303A88710016FA7C /* Build configuration list for PBXProject "WAGhack" */;
-			developmentRegion = en;
+			developmentRegion = ja;
 			hasScannedForEncodings = 0;
 			knownRegions = (
-				en,
+				ja,
 				Base,
 			);
 			mainGroup = 94AD8090303A88710016FA7C;
@@ -212,6 +218,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0DEC0DE0000000000000001 /* LocalGovernmentCodeJapan_Knowledge.csv in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -400,6 +407,7 @@
 				DEVELOPMENT_TEAM = X7PH6497P8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "現在地を地図に表示し、住所として保存するために使用します。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -432,6 +440,7 @@
 				DEVELOPMENT_TEAM = X7PH6497P8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "現在地を地図に表示し、住所として保存するために使用します。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

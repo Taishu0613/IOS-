@@ -9,53 +9,120 @@ import SwiftUI
 import SwiftData
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    private let modelContainer: ModelContainer?
+
+    @State private var selectedTab: AppTab = .map
+    @State private var masterLoadState: MasterLoadState
+
+    init(modelContainer: ModelContainer? = nil) {
+        self.modelContainer = modelContainer
+        _masterLoadState = State(initialValue: modelContainer == nil ? .ready : .idle)
+    }
 
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
+        ZStack {
+            TabView(selection: $selectedTab) {
+                Tab("マップ", systemImage: "map", value: .map) {
+                    MapScreen()
                 }
-                .onDelete(perform: deleteItems)
-            }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
+
+                Tab("市区町村", systemImage: "building.2", value: .savedPlaces) {
+                    SavedPlacesScreen()
                 }
             }
-        } detail: {
-            Text("Select an item")
+            .disabled(masterLoadState.isBlocking)
+
+            masterLoadOverlay
+        }
+        .task {
+            guard case .idle = masterLoadState else { return }
+            await loadMunicipalityMaster()
         }
     }
 
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
+    @ViewBuilder
+    private var masterLoadOverlay: some View {
+        switch masterLoadState {
+        case .ready:
+            EmptyView()
+        case .idle, .loading:
+            MasterLoadBackdrop {
+                ProgressView("市区町村データを準備しています")
+            }
+        case .failed(let message):
+            MasterLoadBackdrop {
+                ContentUnavailableView {
+                    Label("データを準備できません", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(message)
+                } actions: {
+                    Button("再試行") {
+                        Task {
+                            await loadMunicipalityMaster()
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
         }
     }
 
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
-            }
+    private func loadMunicipalityMaster() async {
+        guard let modelContainer else {
+            masterLoadState = .ready
+            return
+        }
+
+        masterLoadState = .loading
+
+        do {
+            let records = try MunicipalityMasterImporter().records()
+            let masterStore = MunicipalityMasterStore(modelContainer: modelContainer)
+            try await masterStore.synchronize(records: records)
+            masterLoadState = .ready
+        } catch {
+            masterLoadState = .failed(error.localizedDescription)
         }
     }
 }
 
+private struct MasterLoadBackdrop<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(.regularMaterial)
+                .ignoresSafeArea()
+
+            content
+                .padding(24)
+        }
+    }
+}
+
+private enum MasterLoadState {
+    case idle
+    case loading
+    case ready
+    case failed(String)
+
+    var isBlocking: Bool {
+        switch self {
+        case .idle, .loading, .failed:
+            true
+        case .ready:
+            false
+        }
+    }
+}
+
+private enum AppTab: Hashable {
+    case map
+    case savedPlaces
+}
+
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
+        .modelContainer(for: [SavedPlace.self, Municipality.self], inMemory: true)
 }
