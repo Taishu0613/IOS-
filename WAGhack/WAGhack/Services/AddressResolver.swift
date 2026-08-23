@@ -9,14 +9,32 @@ import MapKit
 
 struct AddressResolver {
     static var preferredLocale: Locale { .current }
+    private static let masterLookupLocale = Locale(identifier: "ja_JP")
 
-    func address(for location: CLLocation) async throws -> String {
+    func addresses(for location: CLLocation) async throws -> ResolvedAddresses {
+        let localizedAddress = try await address(for: location, locale: Self.preferredLocale)
+
+        guard !Self.preferredLocale.identifier.hasPrefix("ja") else {
+            return ResolvedAddresses(
+                localizedAddress: localizedAddress,
+                japaneseAddressForMatching: localizedAddress
+            )
+        }
+
+        // 表示は端末設定に追従させつつ、日本語マスタ照合用の住所だけを別途取得する。
+        let japaneseAddress = try await address(for: location, locale: Self.masterLookupLocale)
+        return ResolvedAddresses(
+            localizedAddress: localizedAddress,
+            japaneseAddressForMatching: japaneseAddress
+        )
+    }
+
+    private func address(for location: CLLocation, locale: Locale) async throws -> String {
         guard let request = MKReverseGeocodingRequest(location: location) else {
             throw AddressResolverError.invalidLocation
         }
 
-        // 端末やシミュレータの言語・地域設定に合わせた住所を取得する。
-        request.preferredLocale = Self.preferredLocale
+        request.preferredLocale = locale
 
         guard let mapItem = try await request.mapItems.first else {
             throw AddressResolverError.addressNotFound
@@ -44,6 +62,11 @@ struct AddressResolver {
             location.coordinate.longitude
         )
     }
+}
+
+struct ResolvedAddresses: Equatable {
+    let localizedAddress: String
+    let japaneseAddressForMatching: String
 }
 
 enum AddressResolverError: LocalizedError {

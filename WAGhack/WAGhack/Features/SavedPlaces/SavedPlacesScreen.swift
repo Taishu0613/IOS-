@@ -17,20 +17,24 @@ struct SavedPlacesScreen: View {
             Group {
                 if savedPlaces.isEmpty {
                     ContentUnavailableView(
-                        "保存した住所はありません",
-                        systemImage: "bookmark.slash",
-                        description: Text("マップ右上の＋ボタンから現在地を保存できます。")
+                        "保存した市区町村はありません",
+                        systemImage: "building.2.crop.circle",
+                        description: Text("マップ右上の＋ボタンから現在地の市区町村を保存できます。")
                     )
                 } else {
                     List {
                         ForEach(savedPlaces) { place in
-                            SavedPlaceRow(place: place)
+                            NavigationLink {
+                                MunicipalityDetailScreen(place: place)
+                            } label: {
+                                SavedPlaceRow(place: place)
+                            }
                         }
                         .onDelete(perform: deletePlaces)
                     }
                 }
             }
-            .navigationTitle("保存した住所")
+            .navigationTitle("保存した市区町村")
             .toolbar {
                 if !savedPlaces.isEmpty {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -74,25 +78,69 @@ private struct SavedPlaceRow: View {
     let place: SavedPlace
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(place.address, systemImage: "mappin.and.ellipse")
+        VStack(alignment: .leading, spacing: 6) {
+            Label(place.displayName, systemImage: "building.2")
                 .font(.headline)
 
-            Text(place.savedAt, format: .dateTime.year().month().day().hour().minute())
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            if let prefectureName = place.municipality?.prefectureName {
+                Text(prefectureName)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
 
-            Text(
-                "緯度 \(place.latitude, format: .number.precision(.fractionLength(5)))・経度 \(place.longitude, format: .number.precision(.fractionLength(5)))"
-            )
-            .font(.caption)
-            .foregroundStyle(.tertiary)
+            Text(place.savedAt, format: .dateTime.year().month().day().hour().minute())
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 4)
     }
 }
 
+private struct MunicipalityDetailScreen: View {
+    let place: SavedPlace
+
+    private var municipality: Municipality? {
+        place.municipality
+    }
+
+    var body: some View {
+        List {
+            Section("市区町村") {
+                LabeledContent("都道府県", value: municipality?.prefectureName ?? "")
+                LabeledContent("市区町村", value: municipality?.municipalityName ?? place.address)
+                LabeledContent("行政区域コード", value: municipality?.code ?? "")
+            }
+
+            TriviaSection(
+                title: "豆知識（歴史）",
+                content: municipality?.historyTrivia ?? ""
+            )
+
+            TriviaSection(
+                title: "豆知識（有名なもの）",
+                content: municipality?.famousThingsTrivia ?? ""
+            )
+        }
+        .navigationTitle(municipality?.municipalityName ?? "市区町村")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct TriviaSection: View {
+    let title: String
+    let content: String
+
+    var body: some View {
+        Section(title) {
+            // マスタが空欄の場合も「情報なし」へ置き換えず、空欄のまま表示する。
+            Text(content)
+                .frame(maxWidth: .infinity, minHeight: 24, alignment: .topLeading)
+                .textSelection(.enabled)
+        }
+    }
+}
+
 #Preview {
     SavedPlacesScreen()
-        .modelContainer(for: SavedPlace.self, inMemory: true)
+        .modelContainer(for: [SavedPlace.self, Municipality.self], inMemory: true)
 }

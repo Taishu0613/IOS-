@@ -10,6 +10,7 @@ import SwiftUI
 struct MapScreen: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \SavedPlace.savedAt, order: .reverse) private var savedPlaces: [SavedPlace]
+    @Query(sort: \Municipality.code) private var municipalities: [Municipality]
 
     @State private var cameraPosition: MapCameraPosition = .userLocation(
         followsHeading: false,
@@ -25,7 +26,7 @@ struct MapScreen: View {
                 UserAnnotation()
 
                 ForEach(savedPlaces) { place in
-                    Marker(place.address, coordinate: place.coordinate)
+                    Marker(place.displayName, coordinate: place.coordinate)
                         .tint(.orange)
                 }
             }
@@ -97,8 +98,8 @@ struct MapScreen: View {
 
     private func saveCurrentAddress() async {
         do {
-            let place = try await viewModel.makeSavedPlace()
-            modelContext.insert(place)
+            let visit = try await viewModel.makeMunicipalityVisit(from: municipalities)
+            saveOrUpdate(visit)
 
             do {
                 try modelContext.save()
@@ -110,15 +111,32 @@ struct MapScreen: View {
             focusMap(on: viewModel.currentLocation)
             successfulSaves += 1
             notice = MapNotice(
-                title: "住所を保存しました",
-                message: place.address
+                title: "市区町村を保存しました",
+                message: "\(visit.municipality.prefectureName) \(visit.municipality.municipalityName)"
             )
         } catch {
             notice = MapNotice(
-                title: "住所を保存できません",
+                title: "市区町村を保存できません",
                 message: error.localizedDescription
             )
         }
+    }
+
+    private func saveOrUpdate(_ visit: MunicipalityVisit) {
+        if let savedPlace = savedPlaces.first(where: {
+            $0.municipality?.code == visit.municipality.code
+        }) {
+            savedPlace.update(with: visit)
+            return
+        }
+
+        let savedPlace = SavedPlace(
+            address: visit.localizedAddress,
+            latitude: visit.location.coordinate.latitude,
+            longitude: visit.location.coordinate.longitude,
+            municipality: visit.municipality
+        )
+        modelContext.insert(savedPlace)
     }
 
     private func focusMap(on location: CLLocation?) {
@@ -144,5 +162,5 @@ private struct MapNotice: Identifiable {
 
 #Preview {
     MapScreen()
-        .modelContainer(for: SavedPlace.self, inMemory: true)
+        .modelContainer(for: [SavedPlace.self, Municipality.self], inMemory: true)
 }
