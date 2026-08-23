@@ -187,10 +187,10 @@
 				};
 			};
 			buildConfigurationList = 94AD8094303A88710016FA7C /* Build configuration list for PBXProject "WAGhack" */;
-			developmentRegion = en;
+			developmentRegion = ja;
 			hasScannedForEncodings = 0;
 			knownRegions = (
-				en,
+				ja,
 				Base,
 			);
 			mainGroup = 94AD8090303A88710016FA7C;
@@ -400,6 +400,7 @@
 				DEVELOPMENT_TEAM = X7PH6497P8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "現在地を地図に表示し、住所として保存するために使用します。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -432,6 +433,7 @@
 				DEVELOPMENT_TEAM = X7PH6497P8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "現在地を地図に表示し、住所として保存するために使用します。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
