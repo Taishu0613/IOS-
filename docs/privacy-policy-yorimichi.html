@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy — よりみち</title>
+  <style>
+    :root {
+      --bg: #f7f7f8;
+      --surface: #ffffff;
+      --text: #1c1c1e;
+      --text-secondary: #55555a;
+      --border: #e5e5e7;
+      --accent: #0066cc;
+      --radius: 12px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #121214;
+        --surface: #1c1c1f;
+        --text: #f2f2f3;
+        --text-secondary: #a8a8ad;
+        --border: #2e2e32;
+        --accent: #4da3ff;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    header.page-header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 2.5rem 1.5rem 2rem;
+      text-align: center;
+    }
+
+    header.page-header h1 {
+      margin: 0 0 0.4rem;
+      font-size: 1.75rem;
+      letter-spacing: -0.01em;
+    }
+
+    header.page-header p {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+    }
+
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 2.5rem 1.5rem 4rem;
+    }
+
+    section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem 1.75rem;
+      margin-bottom: 1.25rem;
+    }
+
+    section h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1.05rem;
+      color: var(--text);
+    }
+
+    section p {
+      margin: 0 0 0.85rem;
+      color: var(--text-secondary);
+    }
+
+    section p:last-child {
+      margin-bottom: 0;
+    }
+
+    section ul {
+      margin: 0 0 0.85rem;
+      padding-left: 1.25rem;
+      color: var(--text-secondary);
+    }
+
+    section ul:last-child {
+      margin-bottom: 0;
+    }
+
+    section li {
+      margin-bottom: 0.35rem;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .effective-date {
+      display: inline-block;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0.3rem 0.9rem;
+      margin-top: 0.75rem;
+    }
+
+    footer.page-footer {
+      text-align: center;
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      padding: 1rem 1.5rem 3rem;
+    }
+  </style>
+</head>
+
+<body>
+  <header class="page-header">
+    <h1>Privacy Policy</h1>
+    <p>よりみち</p>
+    <span class="effective-date">Effective as of 2026-08-23</span>
+  </header>
+
+  <main>
+    <section>
+      <p>This privacy policy applies to the よりみち app for mobile devices (the "Application"), operated by Taishu
+        Wakasugi ("we", "us", or the "Service Provider").</p>
+      <p><strong>Summary:</strong> The Application does not have a server or backend of its own. Location data you
+        save is stored only on your device and is never transmitted to us. The only external party involved is
+        Apple, which briefly processes your coordinates to look up an address (see "Apple Location Services"
+        below).</p>
+    </section>
+
+    <section>
+      <h2>Information We Collect</h2>
+      <p>The Application collects only the location information described below. It does not collect your device's
+        IP address, does not track which screens you visit or how long you use the app, and does not use analytics
+        SDKs, advertising SDKs, or cookies of any kind.</p>
+    </section>
+
+    <section>
+      <h2>Location Information</h2>
+      <p>When you tap the "+" button on the map screen, the Application reads your device's current GPS
+        coordinates, converts them into a readable address, and matches them against a list of Japanese
+        municipalities that is bundled inside the app (no network request is made for this matching). This
+        information — the address, coordinates, the identified prefecture/municipality, and the date/time saved —
+        is stored using Apple's on-device SwiftData framework, inside the Application's private storage area on
+        your device.</p>
+      <ul>
+        <li>This data is used only to display your saved places and related municipality information within the
+          Application.</li>
+        <li>This data is <strong>never sent to the Service Provider</strong> or to any analytics or advertising
+          service. We have no server that receives, stores, or has access to it.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Apple Location Services (MapKit)</h2>
+      <p>To convert your GPS coordinates into a readable address, the Application uses Apple's MapKit reverse
+        geocoding service. This means your coordinates are sent to Apple at the moment you save a location, so that
+        Apple can return an address. This exchange is governed by
+        <a href="https://www.apple.com/legal/privacy/" target="_blank" rel="noopener noreferrer">Apple's Privacy
+          Policy</a>, not by the Service Provider. No other third party receives your location data.
+      </p>
+    </section>
+
+    <section>
+      <h2>Your Rights and How to Delete Your Data</h2>
+      <p>Because your saved locations exist only on your device, you are always in full control of them:</p>
+      <ul>
+        <li><strong>Delete a single entry:</strong> On the "保存した市区町村" (Saved Municipalities) screen, use the
+          Edit control to remove the entry you no longer want.</li>
+        <li><strong>Delete everything at once:</strong> Uninstalling the Application permanently deletes all saved
+          locations, since nothing is kept anywhere else.</li>
+      </ul>
+      <p>Since the Service Provider never receives or stores this data, there is nothing on our end to access,
+        correct, or delete on your behalf. If you have any questions about this, contact us at
+        <a href="mailto:taishu_wakasugi@outlook.com">taishu_wakasugi@outlook.com</a>.
+      </p>
+    </section>
+
+    <section>
+      <h2>Your California Privacy Rights (CCPA/CPRA)</h2>
+      <p>The Service Provider does not sell or share personal information, and does not collect personal
+        information on any server. If you are a California resident and have questions about this, contact us at
+        <a href="mailto:taishu_wakasugi@outlook.com">taishu_wakasugi@outlook.com</a>.
+      </p>
+    </section>
+
+    <section>
+      <h2>Children</h2>
+      <p>The Application is not intended for children under 16 years of age, or such higher age as required by
+        applicable law. The Service Provider does not knowingly market the Application to children, and since no
+        location data ever leaves your device, the Service Provider does not collect any personal information from
+        children or anyone else.</p>
+    </section>
+
+    <section>
+      <h2>Security</h2>
+      <p>Your saved locations are protected by the security and sandboxing built into iOS itself, since they never
+        leave your device. The Service Provider does not operate any server or database that could be affected by a
+        data breach, because we do not receive or store your data.</p>
+    </section>
+
+    <section>
+      <h2>Changes to This Policy</h2>
+      <p>The Service Provider may update this Privacy Policy from time to time. Material changes will be reflected
+        by updating the effective date below.</p>
+      <p>This privacy policy is effective as of 2026-08-23.</p>
+    </section>
+
+    <section>
+      <h2>Contact Us</h2>
+      <p>If you have any questions regarding this privacy policy or the Application, please contact the Service
+        Provider via email at <a href="mailto:taishu_wakasugi@outlook.com">taishu_wakasugi@outlook.com</a>.
+      </p>
+    </section>
+  </main>
+
+  <footer class="page-footer">
+    <p>This privacy policy page was generated by <a href="https://app-privacy-policy-generator.nisrulz.com/"
+        target="_blank" rel="noopener noreferrer">App Privacy Policy Generator</a></p>
+  </footer>
+</body>
+
+</html>
