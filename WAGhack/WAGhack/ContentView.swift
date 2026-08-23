@@ -2,60 +2,37 @@
 //  ContentView.swift
 //  WAGhack
 //
-//  Created by 若杉泰周 on 2026/08/23.
-//
 
 import SwiftUI
 import SwiftData
 
+// アプリのルート画面: マップ画面とリスト画面をタブで切り替える
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    // どちらのタブにいるか／マップをどこにフォーカスするかを2画面で共有する
+    @State private var navigator = AppNavigator()
 
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
+        TabView(selection: Binding(
+            get: { navigator.selectedTab },
+            set: { navigator.selectedTab = $0 }
+        )) {
+            MapScreen()
+                .tabItem {
+                    Label("マップ", systemImage: "map")
                 }
-                .onDelete(perform: deleteItems)
-            }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
+                .tag(AppTab.map)
+            LocationListScreen()
+                .tabItem {
+                    Label("保存した場所", systemImage: "list.bullet")
                 }
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
-        } detail: {
-            Text("Select an item")
+                .tag(AppTab.list)
         }
-    }
-
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
-            }
-        }
+        // 子画面（MapScreen/LocationListScreen）からnavigatorを参照できるようにする
+        .environment(navigator)
     }
 }
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
+        .modelContainer(for: SavedLocation.self, inMemory: true)
 }

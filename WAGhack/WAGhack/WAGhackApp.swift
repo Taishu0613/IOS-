@@ -10,9 +10,10 @@ import SwiftData
 
 @main
 struct WAGhackApp: App {
+    // SwiftDataの保存先（SavedLocationのみを永続化対象として登録）
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            SavedLocation.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
