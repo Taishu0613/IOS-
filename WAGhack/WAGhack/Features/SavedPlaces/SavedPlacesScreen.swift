@@ -17,9 +17,9 @@ struct SavedPlacesScreen: View {
             Group {
                 if savedPlaces.isEmpty {
                     ContentUnavailableView(
-                        "保存した市区町村はありません",
+                        "訪れた市区町村はありません",
                         systemImage: "building.2.crop.circle",
-                        description: Text("マップ右上の＋ボタンから現在地の市区町村を保存できます。")
+                        description: Text("マップ右上の＋ボタンから現在地の市区町村を記録できます。")
                     )
                 } else {
                     List {
@@ -34,7 +34,7 @@ struct SavedPlacesScreen: View {
                     }
                 }
             }
-            .navigationTitle("保存した市区町村")
+            .navigationTitle("訪れた市区町村")
             .toolbar {
                 if !savedPlaces.isEmpty {
                     ToolbarItem(placement: .topBarTrailing) {
