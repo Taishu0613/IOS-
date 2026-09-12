@@ -1,141 +1,78 @@
-//
-//  SavedPlacesScreen.swift
-//  WAGhack
-//
-
 import SwiftData
 import SwiftUI
 
 struct SavedPlacesScreen: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \SavedPlace.savedAt, order: .reverse) private var savedPlaces: [SavedPlace]
-
-    @State private var deletionErrorMessage: String?
+    @Query(sort: \Municipality.code) private var municipalities: [Municipality]
+    @State private var store = SavedPlacesStore()
 
     var body: some View {
+        let summary = store.summary(municipalities: municipalities, savedPlaces: savedPlaces)
+        let excludedPlaces = store.excludedPlaces(savedPlaces, summary: summary)
+
         NavigationStack {
-            Group {
-                if savedPlaces.isEmpty {
-                    ContentUnavailableView(
-                        "訪れた市区町村はありません",
-                        systemImage: "building.2.crop.circle",
-                        description: Text("マップ右上の＋ボタンから現在地の市区町村を記録できます。")
+            List {
+                Section {
+                    ExplorationProgressCard(
+                        title: "日本の訪れた都道府県",
+                        progress: summary.prefectureProgress,
+                        unit: "都道府県",
+                        emphasizesCount: true
                     )
-                } else {
-                    List {
-                        ForEach(savedPlaces) { place in
+                    Label(
+                        "\(summary.progress.visited) / \(summary.progress.total) 市区町村を訪問",
+                        systemImage: "building.2"
+                    )
+                } footer: {
+                    Text("1つでも市区町村を訪れた都道府県を制覇としてカウントします。政令指定都市は区単位で数えます。")
+                }
+
+                if summary.visitedPrefectures.isEmpty {
+                    Section {
+                        Label("マップの＋から、最初の訪問を記録しよう", systemImage: "location.circle")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("記録した都道府県") {
+                    ForEach(summary.visitedPrefectures) { prefecture in
+                        NavigationLink {
+                            PrefectureExplorationScreen(prefectureCode: prefecture.code, name: prefecture.name)
+                        } label: {
+                            PrefectureExplorationRow(prefecture: prefecture)
+                        }
+                    }
+                }
+
+                if !excludedPlaces.isEmpty {
+                    Section {
+                        ForEach(excludedPlaces) { place in
                             NavigationLink {
-                                MunicipalityDetailScreen(place: place)
+                                MunicipalityDetailScreen(municipality: place.municipality, fallbackName: place.address)
                             } label: {
-                                SavedPlaceRow(place: place)
+                                Text(place.displayName)
                             }
                         }
-                        .onDelete(perform: deletePlaces)
-                    }
-                }
-            }
-            .navigationTitle("訪れた市区町村")
-            .toolbar {
-                if !savedPlaces.isEmpty {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        EditButton()
-                    }
-                }
-            }
-            .alert(
-                "削除できませんでした",
-                isPresented: Binding(
-                    get: { deletionErrorMessage != nil },
-                    set: { isPresented in
-                        if !isPresented {
-                            deletionErrorMessage = nil
+                        .onDelete { offsets in
+                            store.delete(offsets.map { excludedPlaces[$0] }, from: modelContext)
                         }
+                    } header: {
+                        Text("踏破率に含まれない記録")
+                    } footer: {
+                        Text("区を特定できない市の記録や、市区町村が未確定の記録です。訪問記録は引き続き確認・削除できます。")
                     }
-                )
-            ) {
+                }
+            }
+            .navigationTitle("旅の記録")
+            .alert("削除できませんでした", isPresented: Binding(
+                get: { store.deletionErrorMessage != nil },
+                set: { if !$0 { store.deletionErrorMessage = nil } }
+            )) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(deletionErrorMessage ?? "不明なエラーが発生しました。")
+                Text(store.deletionErrorMessage ?? "不明なエラーが発生しました。")
             }
-        }
-    }
-
-    private func deletePlaces(at offsets: IndexSet) {
-        for index in offsets {
-            modelContext.delete(savedPlaces[index])
-        }
-
-        do {
-            try modelContext.save()
-        } catch {
-            modelContext.rollback()
-            deletionErrorMessage = error.localizedDescription
-        }
-    }
-}
-
-private struct SavedPlaceRow: View {
-    let place: SavedPlace
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(place.displayName, systemImage: "building.2")
-                .font(.headline)
-
-            if let prefectureName = place.municipality?.prefectureName {
-                Text(prefectureName)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
-            Text(place.savedAt, format: .dateTime.year().month().day().hour().minute())
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.vertical, 4)
-    }
-}
-
-private struct MunicipalityDetailScreen: View {
-    let place: SavedPlace
-
-    private var municipality: Municipality? {
-        place.municipality
-    }
-
-    var body: some View {
-        List {
-            Section("市区町村") {
-                LabeledContent("都道府県", value: municipality?.prefectureName ?? "")
-                LabeledContent("市区町村", value: municipality?.municipalityName ?? place.address)
-                LabeledContent("行政区域コード", value: municipality?.code ?? "")
-            }
-
-            TriviaSection(
-                title: "豆知識（歴史）",
-                content: municipality?.historyTrivia ?? ""
-            )
-
-            TriviaSection(
-                title: "豆知識（有名なもの）",
-                content: municipality?.famousThingsTrivia ?? ""
-            )
-        }
-        .navigationTitle(municipality?.municipalityName ?? "市区町村")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-private struct TriviaSection: View {
-    let title: String
-    let content: String
-
-    var body: some View {
-        Section(title) {
-            // マスタが空欄の場合も「情報なし」へ置き換えず、空欄のまま表示する。
-            Text(content)
-                .frame(maxWidth: .infinity, minHeight: 24, alignment: .topLeading)
-                .textSelection(.enabled)
         }
     }
 }
