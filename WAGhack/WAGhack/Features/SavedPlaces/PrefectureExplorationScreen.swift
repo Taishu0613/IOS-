@@ -22,7 +22,7 @@ struct PrefectureExplorationScreen: View {
                 Section {
                     let entries = prefecture.visitedMunicipalities
                     if entries.isEmpty {
-                        Text("マップの＋から、最初の訪問を記録しよう")
+                        Text("マップの「この場所を記録する」から旅をはじめよう")
                             .foregroundStyle(.secondary)
                     }
                     ForEach(entries) { entry in

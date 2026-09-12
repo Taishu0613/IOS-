@@ -47,7 +47,7 @@ struct ContentView: View {
             EmptyView()
         case .idle, .loading:
             MasterLoadBackdrop {
-                ProgressView("市区町村データを準備しています")
+                ProgressView("市区町村データを準備しています。数分かかることがあります。")
             }
         case .failed(let message):
             MasterLoadBackdrop {

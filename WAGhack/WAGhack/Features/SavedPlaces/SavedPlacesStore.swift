@@ -9,19 +9,7 @@ final class SavedPlacesStore {
     var deletionErrorMessage: String?
 
     func summary(municipalities: [Municipality], savedPlaces: [SavedPlace]) -> ExplorationSummary {
-        let entries = municipalities.map { municipality in
-            ExplorationMunicipality(
-                code: municipality.code,
-                name: municipality.municipalityName,
-                prefectureCode: municipality.prefectureCode,
-                prefectureName: municipality.prefectureName,
-                isPrefecture: municipality.isPrefecture
-            )
-        }
-        return ExplorationProgressCalculator().summarize(
-            municipalities: entries,
-            visitedCodes: Set(savedPlaces.compactMap { $0.municipality?.code })
-        )
+        ExplorationProgressCalculator().summarize(models: municipalities, savedPlaces: savedPlaces)
     }
 
     func excludedPlaces(_ places: [SavedPlace], summary: ExplorationSummary) -> [SavedPlace] {

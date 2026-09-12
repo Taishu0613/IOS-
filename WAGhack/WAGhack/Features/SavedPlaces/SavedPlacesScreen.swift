@@ -30,7 +30,7 @@ struct SavedPlacesScreen: View {
 
                 if summary.visitedPrefectures.isEmpty {
                     Section {
-                        Label("マップの＋から、最初の訪問を記録しよう", systemImage: "location.circle")
+                        Label("マップの「この場所を記録する」から旅をはじめよう", systemImage: "location.circle")
                             .foregroundStyle(.secondary)
                     }
                 }
