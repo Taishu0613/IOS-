@@ -8,10 +8,11 @@ struct PrefectureExplorationScreen: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Municipality.code) private var municipalities: [Municipality]
     @Query private var savedPlaces: [SavedPlace]
+    @Query private var visitedPrefectures: [VisitedPrefecture]
     @State private var store = SavedPlacesStore()
 
     var body: some View {
-        let summary = store.summary(municipalities: municipalities, savedPlaces: savedPlaces)
+        let summary = store.summary(municipalities: municipalities, savedPlaces: savedPlaces, visitedPrefectures: visitedPrefectures)
         let prefecture = summary.prefectures.first { $0.code == prefectureCode }
 
         List {

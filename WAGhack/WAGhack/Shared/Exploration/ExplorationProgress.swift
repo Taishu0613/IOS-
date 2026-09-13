@@ -53,6 +53,8 @@ struct PrefectureExploration: Identifiable {
     let name: String
     let municipalities: [ExplorationMunicipality]
     let visitedCodes: Set<String>
+    /// 市区町村を1件も訪れていなくても、都道府県単独の記録(VisitedPrefecture)があればtrue。
+    let isExplicitlyVisited: Bool
 
     var id: String { code }
     var progress: ExplorationCount {
@@ -61,6 +63,10 @@ struct PrefectureExploration: Identifiable {
     /// 図鑑は集める体験のため、訪問済みの市区町村だけを一覧に出す。
     var visitedMunicipalities: [ExplorationMunicipality] {
         municipalities.filter { visitedCodes.contains($0.code) }
+    }
+    /// 市区町村の記録・都道府県単独の記録のどちらか一方でもあれば「訪問済み」。
+    var isVisited: Bool {
+        !visitedCodes.isEmpty || isExplicitlyVisited
     }
 }
 
@@ -76,23 +82,24 @@ struct ExplorationSummary {
     }
 
     var visitedPrefectureCount: Int {
-        prefectures.filter { !$0.visitedCodes.isEmpty }.count
+        prefectures.filter(\.isVisited).count
     }
 
     var prefectureProgress: ExplorationCount {
         ExplorationCount(visited: visitedPrefectureCount, total: prefectures.count)
     }
 
-    /// 図鑑は集める体験のため、1件でも訪問済みの都道府県だけを一覧に出す。
+    /// 図鑑は集める体験のため、訪問済みの都道府県だけを一覧に出す。
     var visitedPrefectures: [PrefectureExploration] {
-        prefectures.filter { !$0.visitedCodes.isEmpty }
+        prefectures.filter(\.isVisited)
     }
 }
 
 struct ExplorationProgressCalculator {
     func summarize(
         municipalities: [ExplorationMunicipality],
-        visitedCodes: Set<String>
+        visitedCodes: Set<String>,
+        explicitlyVisitedPrefectureCodes: Set<String> = []
     ) -> ExplorationSummary {
         let candidates = municipalities.filter { !$0.isPrefecture && !$0.name.isEmpty }
         let grouped = Dictionary(grouping: candidates, by: \.prefectureCode)
@@ -122,7 +129,8 @@ struct ExplorationProgressCalculator {
                 code: code,
                 name: first.prefectureName,
                 municipalities: sorted,
-                visitedCodes: visitedCodes.intersection(codes)
+                visitedCodes: visitedCodes.intersection(codes),
+                isExplicitlyVisited: explicitlyVisitedPrefectureCodes.contains(code)
             ))
         }
         return ExplorationSummary(prefectures: prefectures, eligibleCodes: eligibleCodes)

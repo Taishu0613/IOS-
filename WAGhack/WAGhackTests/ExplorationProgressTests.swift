@@ -63,6 +63,19 @@ struct ExplorationProgressTests {
         #expect(try #require(after.prefectures.first).visitedMunicipalities.isEmpty)
     }
 
+    @Test func 都道府県単独の記録は市区町村を訪れていなくても訪問済み扱いになる() {
+        let summary = calculator.summarize(
+            municipalities: [entry("13101", "千代田区"), entry("14101", "横浜市鶴見区")],
+            visitedCodes: [],
+            explicitlyVisitedPrefectureCodes: ["14"]
+        )
+        let kanagawa = summary.prefectures.first { $0.code == "14" }
+        #expect(summary.visitedPrefectures.map(\.code) == ["14"])
+        // 都道府県単独の記録があっても、市区町村の進捗(0件)には影響しない。両者は独立している。
+        #expect(kanagawa?.progress.visited == 0)
+        #expect(kanagawa?.visitedMunicipalities.isEmpty == true)
+    }
+
     @Test func 図鑑には1件でも訪問済みの都道府県だけを出す() {
         let summary = calculator.summarize(municipalities: [
             entry("13101", "千代田区"), entry("14101", "横浜市鶴見区")

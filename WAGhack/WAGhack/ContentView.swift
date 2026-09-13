@@ -11,7 +11,6 @@ import SwiftData
 struct ContentView: View {
     private let modelContainer: ModelContainer?
 
-    @State private var selectedTab: AppTab = .map
     @State private var masterLoadState: MasterLoadState
 
     init(modelContainer: ModelContainer? = nil) {
@@ -21,16 +20,9 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            TabView(selection: $selectedTab) {
-                Tab("マップ", systemImage: "map", value: .map) {
-                    MapScreen()
-                }
-
-                Tab("市区町村", systemImage: "building.2", value: .savedPlaces) {
-                    SavedPlacesScreen()
-                }
-            }
-            .disabled(masterLoadState.isBlocking)
+            // 地図が常に主役で、記録一覧はMapScreenの常駐シートから辿る構成のためタブは持たない。
+            MapScreen(isMasterReady: masterLoadState.isReady)
+                .disabled(masterLoadState.isBlocking)
 
             masterLoadOverlay
         }
@@ -115,14 +107,13 @@ private enum MasterLoadState {
             false
         }
     }
-}
 
-private enum AppTab: Hashable {
-    case map
-    case savedPlaces
+    var isReady: Bool {
+        if case .ready = self { true } else { false }
+    }
 }
 
 #Preview {
     ContentView()
-        .modelContainer(for: [SavedPlace.self, Municipality.self], inMemory: true)
+        .modelContainer(for: [SavedPlace.self, Municipality.self, VisitedPrefecture.self], inMemory: true)
 }

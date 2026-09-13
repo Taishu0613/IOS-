@@ -2,7 +2,11 @@ import Foundation
 
 extension ExplorationProgressCalculator {
     @MainActor
-    func summarize(models: [Municipality], savedPlaces: [SavedPlace]) -> ExplorationSummary {
+    func summarize(
+        models: [Municipality],
+        savedPlaces: [SavedPlace],
+        visitedPrefectures: [VisitedPrefecture] = []
+    ) -> ExplorationSummary {
         let entries = models.map { municipality in
             ExplorationMunicipality(
                 code: municipality.code, name: municipality.municipalityName,
@@ -12,7 +16,8 @@ extension ExplorationProgressCalculator {
         }
         return summarize(
             municipalities: entries,
-            visitedCodes: Set(savedPlaces.compactMap { $0.municipality?.code })
+            visitedCodes: Set(savedPlaces.compactMap { $0.municipality?.code }),
+            explicitlyVisitedPrefectureCodes: Set(visitedPrefectures.map(\.code))
         )
     }
 }
