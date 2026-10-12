@@ -12,3 +12,7 @@
 # 旧配置。境界データとツールは /BoundaryData に集約したため、ここに置かれても追跡しない
 # （原本 GeoJSON は 500MB 超で GitHub の上限 100MB を超える）。
 /docs/BoundaryData/
+
+# Xcode の個人設定（ウィンドウ状態・ブレークポイント・スキーム表示順）。開発者ごとに異なり衝突の原因になるため追跡しない。
+# 共有したいスキームやブレークポイントは xcshareddata/ に置く。
+xcuserdata/
