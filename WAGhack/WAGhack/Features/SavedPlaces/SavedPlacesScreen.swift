@@ -14,6 +14,8 @@ struct SavedPlacesScreen: View {
     @State private var store = SavedPlacesStore()
     /// マップのシート内でだけ渡される。プレビューなど渡されない場所では地図を出さない。
     @Environment(SilhouetteMapStore.self) private var silhouetteStore: SilhouetteMapStore?
+    /// 未訪問の都道府県は数が多い(最大47件)ため、最初は畳んでおき、記録の一覧を埋もれさせない。
+    @State private var isUnvisitedPrefecturesExpanded = false
 
     var body: some View {
         let excludedPlaces = store.excludedPlaces(savedPlaces, summary: summary)
@@ -61,6 +63,25 @@ struct SavedPlacesScreen: View {
                     } label: {
                         PrefectureExplorationRow(prefecture: prefecture)
                     }
+                }
+            }
+
+            let unvisitedPrefectures = summary.unvisitedPrefectures
+            if !unvisitedPrefectures.isEmpty {
+                Section {
+                    DisclosureGroup(isExpanded: $isUnvisitedPrefecturesExpanded) {
+                        ForEach(unvisitedPrefectures) { prefecture in
+                            NavigationLink {
+                                PrefectureExplorationScreen(prefectureCode: prefecture.code, name: prefecture.name)
+                            } label: {
+                                LabeledContent(prefecture.name, value: "\(prefecture.progress.total) 市区町村")
+                            }
+                        }
+                    } label: {
+                        LabeledContent("まだ訪れていない都道府県", value: "\(unvisitedPrefectures.count)")
+                    }
+                } footer: {
+                    Text("まだ訪れていない場所のみどころも見られます。次のよりみち先を探してみよう。")
                 }
             }
 

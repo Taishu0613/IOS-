@@ -60,9 +60,13 @@ struct PrefectureExploration: Identifiable {
     var progress: ExplorationCount {
         ExplorationCount(visited: visitedCodes.count, total: municipalities.count)
     }
-    /// 図鑑は集める体験のため、訪問済みの市区町村だけを一覧に出す。
+    /// 図鑑の「訪れた市区町村」。集める体験の中心なので、未訪問とは分けて先に出す。
     var visitedMunicipalities: [ExplorationMunicipality] {
         municipalities.filter { visitedCodes.contains($0.code) }
+    }
+    /// まだ訪れていない市区町村。豆知識を先に読んで、次のよりみち先を選べるようにするために出す。
+    var unvisitedMunicipalities: [ExplorationMunicipality] {
+        municipalities.filter { !visitedCodes.contains($0.code) }
     }
     /// 市区町村の記録・都道府県単独の記録のどちらか一方でもあれば「訪問済み」。
     var isVisited: Bool {
@@ -89,9 +93,14 @@ struct ExplorationSummary {
         ExplorationCount(visited: visitedPrefectureCount, total: prefectures.count)
     }
 
-    /// 図鑑は集める体験のため、訪問済みの都道府県だけを一覧に出す。
+    /// 図鑑の「記録した都道府県」。集める体験の中心なので、未訪問とは分けて出す。
     var visitedPrefectures: [PrefectureExploration] {
         prefectures.filter(\.isVisited)
+    }
+
+    /// まだ訪れていない都道府県。中の市区町村の豆知識を見て、行き先を選べるようにするために出す。
+    var unvisitedPrefectures: [PrefectureExploration] {
+        prefectures.filter { !$0.isVisited }
     }
 }
 

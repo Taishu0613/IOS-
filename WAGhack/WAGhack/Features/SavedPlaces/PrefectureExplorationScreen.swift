@@ -16,6 +16,12 @@ struct PrefectureExplorationScreen: View {
     var body: some View {
         let summary = store.summary(municipalities: municipalities, savedPlaces: savedPlaces, visitedPrefectures: visitedPrefectures)
         let prefecture = summary.prefectures.first { $0.code == prefectureCode }
+        // 行ごとに全市区町村(約2,000件)を探すと、未訪問まで並べたときに件数分くり返すことになるため、先に引けるようにしておく。
+        // マスタには同じコードの重複がありうるので、最初の1件を使う。
+        let municipalitiesByCode = Dictionary(
+            municipalities.filter { $0.prefectureCode == prefectureCode }.map { ($0.code, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
 
         List {
             if let prefecture {
@@ -42,11 +48,11 @@ struct PrefectureExplorationScreen: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(entries) { entry in
-                        if let municipality = municipalities.first(where: { $0.code == entry.code }) {
+                        if let municipality = municipalitiesByCode[entry.code] {
                             NavigationLink {
                                 MunicipalityDetailScreen(municipality: municipality, fallbackName: entry.name)
                             } label: {
-                                MunicipalityExplorationRow(name: entry.name, trivia: municipality.famousThingsTrivia)
+                                MunicipalityExplorationRow(name: entry.name, trivia: municipality.famousThingsTrivia, isVisited: true)
                             }
                             .swipeActions {
                                 Button("訪問を削除", role: .destructive) {
@@ -59,7 +65,26 @@ struct PrefectureExplorationScreen: View {
                 } header: {
                     Text("訪れた市区町村")
                 } footer: {
-                    Text("訪れた市区町村がここに集まります。みどころは訪問後に確認できます。")
+                    Text("訪れた市区町村がここに集まります。")
+                }
+
+                let unvisitedEntries = prefecture.unvisitedMunicipalities
+                if !unvisitedEntries.isEmpty {
+                    Section {
+                        ForEach(unvisitedEntries) { entry in
+                            if let municipality = municipalitiesByCode[entry.code] {
+                                NavigationLink {
+                                    MunicipalityDetailScreen(municipality: municipality, fallbackName: entry.name)
+                                } label: {
+                                    MunicipalityExplorationRow(name: entry.name, trivia: municipality.famousThingsTrivia, isVisited: false)
+                                }
+                            }
+                        }
+                    } header: {
+                        Text("まだ訪れていない市区町村")
+                    } footer: {
+                        Text("みどころを見て、次のよりみち先を探してみよう。")
+                    }
                 }
             }
         }
@@ -80,15 +105,17 @@ struct PrefectureExplorationScreen: View {
 private struct MunicipalityExplorationRow: View {
     let name: String
     let trivia: String
+    let isVisited: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "checkmark.seal.fill")
-                .foregroundStyle(.teal)
+            // 未訪問は色を落とし、訪問済み(集めたもの)との違いがひと目で分かるようにする。
+            Image(systemName: isVisited ? "checkmark.seal.fill" : "mappin.circle")
+                .foregroundStyle(isVisited ? AnyShapeStyle(.teal) : AnyShapeStyle(.secondary))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(name).font(.headline)
-                Text(trivia.isEmpty ? "訪問済み" : trivia)
+                Text(trivia.isEmpty ? (isVisited ? "訪問済み" : "未訪問") : trivia)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

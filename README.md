@@ -11,8 +11,8 @@
 - 保存した場所を地図上のマーカーで表示
 - SwiftDataによる市区町村マスタ、住所・座標・保存日時の永続化
 - 全国・都道府県ごとの市区町村踏破率、達成状況、次の目標を表示
-- 都道府県別の図鑑で、訪問済み・未訪問を絞り込み
-- 市区町村の訪問削除、未訪問も含む豆知識詳細の表示
+- 都道府県別の図鑑で、訪れた市区町村とまだ訪れていない市区町村を分けて一覧表示
+- 市区町村の訪問削除、未訪問も含む豆知識詳細の表示（未訪問なら「まだ未訪問です。よりみちしてみませんか？」を添える）
 - 豆知識の空欄は補完せず空欄のまま表示
 - iOS 26のネイティブタブバーとLiquid Glass表現
 
@@ -79,10 +79,10 @@ WAGhack/WAGhack/
 
 - `ExplorationProgress.swift`: SwiftData/SwiftUIに依存しない集計用の値型、対象判定、率、節目計算。
 - `SavedPlacesStore.swift`: Query結果を集計入力へ変換し、削除・保存失敗時のrollbackを担当。進捗を永続化・二重保持しない。
-- `SavedPlacesScreen.swift`: 全国サマリー、都道府県一覧、集計対象外の記録。集計は自分で計算せず、`MapScreen`が持つ`summary`を受け取る（シートを広げるたびに全市区町村を読み直すとメインスレッドが約0.1秒止まり、展開のアニメーションが引っかかっていたため）。
-- `PrefectureExplorationScreen.swift`: 都道府県の図鑑と訪問状況の絞り込み。
+- `SavedPlacesScreen.swift`: 全国サマリー、記録した都道府県、まだ訪れていない都道府県（畳んで表示）、集計対象外の記録。集計は自分で計算せず、`MapScreen`が持つ`summary`を受け取る（シートを広げるたびに全市区町村を読み直すとメインスレッドが約0.1秒止まり、展開のアニメーションが引っかかっていたため）。
+- `PrefectureExplorationScreen.swift`: 都道府県の図鑑。訪れた市区町村の下に、まだ訪れていない市区町村も並べる。
 - `ExplorationProgressCard.swift`: 共通の進捗表示と都道府県行。標準のProgressViewと可変文字サイズを使用。
-- `MunicipalityDetailScreen.swift`: 訪問の有無に依存しない豆知識詳細。
+- `MunicipalityDetailScreen.swift`: 訪問の有無に依存しない豆知識詳細。未訪問のときだけ訪問を促す一言を出す（判定は`SavedPlace`を自分で引き、開いている間の記録・削除に追従する）。
 
 SwiftDataのQueryを取得層として維持し、単一実装だけのRepository/protocolは追加しない。
 永続モデルの変更、新規依存ライブラリの追加はなし。既存のiOS 26.2以上のアプリ設定に合わせる。

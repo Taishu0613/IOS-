@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 struct MunicipalityDetailScreen: View {
@@ -6,6 +7,9 @@ struct MunicipalityDetailScreen: View {
 
     /// マップのシート内でだけ渡される。プレビューなど渡されない場所では形を出さない。
     @Environment(SilhouetteMapStore.self) private var silhouetteStore: SilhouetteMapStore?
+    /// 訪問済みかの判定に使う。呼び出し側から渡さずここで引くのは、開いている間に記録・削除しても
+    /// 表示が追従するようにするため(記録はユーザー本人の分だけなので件数は小さい)。
+    @Query private var savedPlaces: [SavedPlace]
 
     /// 形を描く枠の高さ。
     private static let shapeHeight: CGFloat = 220
@@ -15,6 +19,13 @@ struct MunicipalityDetailScreen: View {
     /// 背景に形を敷くか。Storeが渡されない場所(プレビューなど)や市区町村が不明なときは敷かない。
     private var showsShape: Bool {
         municipality?.code != nil && silhouetteStore != nil
+    }
+
+    /// 未訪問の市区町村でも豆知識は見せ、訪れるきっかけになる一言を添える。
+    /// 市区町村が不明なとき(訪問記録から開いた場合のみ起こる)は訪問済みなので出さない。
+    private var showsVisitInvitation: Bool {
+        guard let code = municipality?.code else { return false }
+        return !savedPlaces.contains { $0.municipality?.code == code }
     }
 
     var body: some View {
@@ -33,6 +44,13 @@ struct MunicipalityDetailScreen: View {
                 }
                 // 先頭のセクションの上に空く標準の余白を詰め、形の位置と透明な行の位置をそろえる。
                 .listSectionMargins(.top, 0)
+            }
+
+            if showsVisitInvitation {
+                Section {
+                    Label("まだ未訪問です。よりみちしてみませんか？", systemImage: "figure.walk")
+                        .foregroundStyle(.teal)
+                }
             }
 
             Section("市区町村") {

@@ -85,6 +85,26 @@ struct ExplorationProgressTests {
         #expect(summary.prefectureProgress.total == 2)
     }
 
+    @Test func 未訪問の都道府県は訪問済みと重ならずに別の一覧へ出す() {
+        let summary = calculator.summarize(
+            municipalities: [entry("13101", "千代田区"), entry("14101", "横浜市鶴見区"), entry("27102", "大阪市都島区")],
+            visitedCodes: ["13101"],
+            explicitlyVisitedPrefectureCodes: ["14"]
+        )
+        // 都道府県単独の記録がある神奈川県は訪問済み側にだけ出る。
+        #expect(summary.unvisitedPrefectures.map(\.code) == ["27"])
+        #expect(summary.visitedPrefectures.count + summary.unvisitedPrefectures.count == summary.prefectures.count)
+    }
+
+    @Test func 未訪問の市区町村は訪問済みを除いてすべて出す() throws {
+        let summary = calculator.summarize(municipalities: [
+            entry("13101", "千代田区"), entry("13102", "中央区"), entry("13103", "港区")
+        ], visitedCodes: ["13102"])
+        let tokyo = try #require(summary.prefectures.first)
+        #expect(tokyo.unvisitedMunicipalities.map(\.code) == ["13101", "13103"])
+        #expect(tokyo.visitedMunicipalities.map(\.code) == ["13102"])
+    }
+
     @MainActor
     @Test func SwiftDataの訪問削除で対象だけを消して進捗を更新する() throws {
         let container = try ModelContainer(
