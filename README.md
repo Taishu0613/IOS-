@@ -79,7 +79,7 @@ WAGhack/WAGhack/
 
 - `ExplorationProgress.swift`: SwiftData/SwiftUIに依存しない集計用の値型、対象判定、率、節目計算。
 - `SavedPlacesStore.swift`: Query結果を集計入力へ変換し、削除・保存失敗時のrollbackを担当。進捗を永続化・二重保持しない。
-- `SavedPlacesScreen.swift`: 全国サマリー、都道府県一覧、集計対象外の記録。
+- `SavedPlacesScreen.swift`: 全国サマリー、都道府県一覧、集計対象外の記録。集計は自分で計算せず、`MapScreen`が持つ`summary`を受け取る（シートを広げるたびに全市区町村を読み直すとメインスレッドが約0.1秒止まり、展開のアニメーションが引っかかっていたため）。
 - `PrefectureExplorationScreen.swift`: 都道府県の図鑑と訪問状況の絞り込み。
 - `ExplorationProgressCard.swift`: 共通の進捗表示と都道府県行。標準のProgressViewと可変文字サイズを使用。
 - `MunicipalityDetailScreen.swift`: 訪問の有無に依存しない豆知識詳細。
@@ -150,8 +150,10 @@ SwiftDataのQueryを取得層として維持し、単一実装だけのRepositor
 |---|---|---|---|
 | 0 | 約800km〜4,000km（全国） | 訪問済み・現在地だけ | 描く |
 | 1 | 約200〜800km | 訪問済み・現在地だけ | 描く |
-| 2 | 約50〜200km | 未訪問も含めてすべて | 描く |
+| 2 | 約50〜200km | 約120km未満で未訪問も含めてすべて（それより広い間は訪問済み・現在地だけ） | 描く |
 | 3 | 〜約50km | 未訪問も含めてすべて | 描く |
+
+未訪問の網目を描くかはLODとは別に`UnvisitedMunicipalityVisibility`が決める（拡大時120km未満で描き始め、縮小時150km超で消す）。
 
 4,000kmより広い範囲（日本が画面の一部にしか映らない縮尺）では何も描かない。
 
@@ -159,7 +161,7 @@ SwiftDataのQueryを取得層として維持し、単一実装だけのRepositor
 
 MapKitはポリゴン1枚ごとに描画を持つため、枚数がそのまま重さになる。
 
-- 未訪問の網目はLOD2以上だけで描く。全国で約2,000枚・LOD1で約1,500枚だったものが、県境・海岸線（全国で約180本）と訪問済みの枚数だけになる。LOD2の網目は最大で約600枚。
+- 未訪問の網目は画面の横幅が約120km未満まで寄ったときだけ描く。全国で約2,000枚・LOD1で約1,500枚だったものが、県境・海岸線（全国で約180本）と訪問済みの枚数だけになる。以前はLOD2に入った時点（180km未満）で描いており、1画面に最大約600枚が載って重かったため、2026-10に閾値を寄せた（面積比で約0.44倍）。
 - 画面幅の1/100（約4pt）未満の島は描かない。輪郭線を付けると点の塊になり、海岸沿いに並ぶと線が太い帯に見えるため。各行政単位の最大のピースだけは縮尺に関係なく必ず描く。
 - ピースのidにはLODを含める。含めないとLODが変わってもidが同じになり、地図側が古いLODの形を残したまま新しい形を重ねる。簡略化の違う2本の線が重なって、境界の一部（それまでに別のLODで表示した範囲）だけが太い帯に見えていた。
 - 先読みする範囲は表示範囲の上下左右20%（以前は50%で、描く面積が約2倍になっていた）。基準の表示範囲はヘッダー・シートの裏も含めた地図のビュー全体（`MapFullFrameRect`）。以前はセーフエリアの内側だけを基準にしていたため、半透明のヘッダーやシートの裏でピースが途切れて見えた。
@@ -187,6 +189,7 @@ MapKitはポリゴン1枚ごとに描画を持つため、枚数がそのまま�
 | `Models/AdministrativeBoundary.swift` | 境界の値型（経緯度の矩形・ポリゴン・行政単位・県境線`BoundaryLine`） |
 | `Models/BoundaryManifest.swift` | manifest.jsonの読み取り。レイヤ（`BoundaryLayer`）・LOD・表示範囲からファイルを選ぶ |
 | `Models/BoundaryLOD.swift` | 画面幅からLODを決める（ヒステリシス） |
+| `Models/UnvisitedMunicipalityVisibility.swift` | 画面幅から未訪問の網目を描くかを決める（ヒステリシス） |
 | `Models/BoundaryPieceFilter.swift` | 縮尺に対して小さすぎる島を省く規則 |
 | `Data/BoundaryGeoJSONDecoder.swift` | ポリゴンのGeoJSON → 値型への変換（市区町村`{c,n,p}`・都道府県`{p,n}`） |
 | `Data/BoundaryLineGeoJSONDecoder.swift` | 県境線のGeoJSON → `BoundaryLine`（`{p,k}`、kは`border`/`coast`） |

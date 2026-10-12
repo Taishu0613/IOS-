@@ -643,7 +643,7 @@ struct MapScreen: View {
 
     private var expandedSheetContent: some View {
         NavigationStack(path: $sheetPath) {
-            SavedPlacesScreen()
+            SavedPlacesScreen(summary: summary)
                 .navigationDestination(for: MapSheetRoute.self) { route in
                     switch route {
                     case .prefecture(let code, let name):

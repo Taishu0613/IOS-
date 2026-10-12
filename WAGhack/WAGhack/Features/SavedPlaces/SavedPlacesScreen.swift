@@ -2,16 +2,20 @@ import SwiftData
 import SwiftUI
 
 struct SavedPlacesScreen: View {
+    /// 踏破率の集計。持ち主の`MapScreen`が記録の増減に合わせて計算し直したものを受け取る。
+    ///
+    /// この画面はシートを広げるたびに作り直される。以前はここで全市区町村(約2,000件)を`@Query`で
+    /// 読み込んで集計し直しており、それだけでメインスレッドが約0.1秒止まり(シミュレータで計測)、
+    /// シートが広がるアニメーションが引っかかって見えていた。同じ集計を2か所で持たないためにも受け取る形にしている。
+    let summary: ExplorationSummary
+
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \SavedPlace.savedAt, order: .reverse) private var savedPlaces: [SavedPlace]
-    @Query(sort: \Municipality.code) private var municipalities: [Municipality]
-    @Query private var visitedPrefectures: [VisitedPrefecture]
     @State private var store = SavedPlacesStore()
     /// マップのシート内でだけ渡される。プレビューなど渡されない場所では地図を出さない。
     @Environment(SilhouetteMapStore.self) private var silhouetteStore: SilhouetteMapStore?
 
     var body: some View {
-        let summary = store.summary(municipalities: municipalities, savedPlaces: savedPlaces, visitedPrefectures: visitedPrefectures)
         let excludedPlaces = store.excludedPlaces(savedPlaces, summary: summary)
 
         // マップのシート内NavigationStackにpushされる前提なので、自前のNavigationStackは持たない。
@@ -102,7 +106,7 @@ struct SavedPlacesScreen: View {
 
 #Preview {
     NavigationStack {
-        SavedPlacesScreen()
+        SavedPlacesScreen(summary: ExplorationSummary(prefectures: [], eligibleCodes: []))
     }
     .modelContainer(for: [SavedPlace.self, Municipality.self, VisitedPrefecture.self], inMemory: true)
 }
