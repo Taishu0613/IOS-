@@ -14,6 +14,7 @@ struct WAGhackApp: App {
         let schema = Schema([
             SavedPlace.self,
             Municipality.self,
+            VisitedPrefecture.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
