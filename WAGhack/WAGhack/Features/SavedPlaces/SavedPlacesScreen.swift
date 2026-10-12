@@ -79,6 +79,8 @@ struct SavedPlacesScreen: View {
                 }
             }
 
+            NewMunicipalityAlertSettingsSection()
+
             // マップの市区町村ポリゴンの出典(CC BY 4.0の表示義務)。地図の上は操作部品で埋まっているため、ここに置く。
             Section {
                 BoundaryAttributionView()
