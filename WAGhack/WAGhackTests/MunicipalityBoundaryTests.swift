@@ -1,5 +1,6 @@
 import CoreLocation
 import Foundation
+import MapKit
 import Testing
 @testable import WAGhack
 
@@ -204,6 +205,44 @@ struct BoundaryLineGeoJSONDecoderTests {
         #expect(throws: BoundaryLineGeoJSONDecoder.DecodingError.unknownKind("river")) {
             try BoundaryLineGeoJSONDecoder().decode(Data(json.utf8), fileID: "f")
         }
+    }
+}
+
+struct BoundaryPieceTests {
+    @Test func 穴の無いピースは輪郭を別に持たずポリゴンの縁取りで描く() {
+        let piece = BoundaryPiece(id: "lod2/municipalities/13210/0", code: "13210", shape: polygon(holes: []))
+
+        #expect(piece.outlines == nil)
+        #expect(piece.polygon.interiorPolygons?.isEmpty ?? true)
+    }
+
+    @Test func 穴のあるピースは塗り用に穴を残し輪郭は外周と穴を穴の無い形で持つ() {
+        let hole = ring(minLongitude: 0.04, minLatitude: 0.04, side: 0.02)
+        let piece = BoundaryPiece(id: "lod2/municipalities/11201/0", code: "11201", shape: polygon(holes: [hole]))
+
+        // 塗りは飛び地を塗りつぶさないよう、穴を持ったまま。
+        #expect(piece.polygon.interiorPolygons?.count == 1)
+        // 縁取りは穴のあるポリゴンだと太く描かれるため、外周と穴をそれぞれ穴の無いポリゴンにする。
+        let outlines = piece.outlines ?? []
+        #expect(outlines.map(\.id) == ["lod2/municipalities/11201/0/outline/0", "lod2/municipalities/11201/0/outline/1"])
+        #expect(outlines.allSatisfy { $0.polygon.interiorPolygons?.isEmpty ?? true })
+        #expect(outlines.map(\.polygon.pointCount) == [5, hole.count])
+    }
+
+    private func polygon(holes: [[CLLocationCoordinate2D]]) -> BoundaryPolygon {
+        let exterior = ring(minLongitude: 0, minLatitude: 0, side: 0.1)
+        return BoundaryPolygon(exterior: exterior, holes: holes, boundingBox: GeoBoundingBox(enclosing: exterior)!)
+    }
+
+    /// 始点と終点が同じ、閉じた正方形の輪(5点)。
+    private func ring(minLongitude: Double, minLatitude: Double, side: Double) -> [CLLocationCoordinate2D] {
+        [
+            CLLocationCoordinate2D(latitude: minLatitude, longitude: minLongitude),
+            CLLocationCoordinate2D(latitude: minLatitude + side, longitude: minLongitude),
+            CLLocationCoordinate2D(latitude: minLatitude + side, longitude: minLongitude + side),
+            CLLocationCoordinate2D(latitude: minLatitude, longitude: minLongitude + side),
+            CLLocationCoordinate2D(latitude: minLatitude, longitude: minLongitude),
+        ]
     }
 }
 
