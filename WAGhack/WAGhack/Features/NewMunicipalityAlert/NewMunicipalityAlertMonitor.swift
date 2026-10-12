@@ -6,7 +6,8 @@ import SwiftData
 import UIKit
 import UserNotifications
 
-/// 記録が一度もない市区町村に入ったら、アプリを閉じていてもローカル通知で知らせる。
+/// 記録が一度もない市区町村(または都道府県)に入ったら、アプリを閉じていてもローカル通知で知らせる。
+/// どちらで知らせるかは`NewMunicipalityAlertMode`でユーザーが選ぶ。
 ///
 /// 地図画面の移動中の判定(`MapViewModel.monitorMunicipalityChanges`)は前面にある間だけ動くため、
 /// 裏ではCore Locationの「大幅な位置の変化」(significant-change location service)で起こしてもらう。
@@ -32,15 +33,19 @@ final class NewMunicipalityAlertMonitor: NSObject {
         case notificationsDenied
     }
 
-    private static let isEnabledKey = "newMunicipalityAlert.isEnabled"
-    private static let historyKey = "newMunicipalityAlert.history"
+    private static let modeKey = "newMunicipalityAlert.mode"
+    /// 市区町村のオン/オフしか無かった版の設定。読み替えたら消す。
+    private static let legacyIsEnabledKey = "newMunicipalityAlert.isEnabled"
+    /// 市区町村モードの履歴は、市区町村だけだった版と同じキーを使い続ける(出入りの記録を引き継ぐため)。
+    private static let municipalityHistoryKey = "newMunicipalityAlert.history"
+    private static let prefectureHistoryKey = "newMunicipalityAlert.prefectureHistory"
     /// 判定に使う位置の精度の上限(m)。大幅な位置の変化は基地局・Wi-Fiによる粗い位置で届くことが多く、
     /// 地図画面の自動判定(100m)と同じ基準では大半を捨ててしまうため緩めてある。
     /// これより粗い位置では境界付近で隣の市区町村と取り違えやすい。仮の値で、実機で調整する。
     private static let maximumHorizontalAccuracy: CLLocationAccuracy = 1_000
 
-    /// ユーザーが設定でオンにしているか。端末ごとの設定なのでUserDefaultsに保存する。
-    private(set) var isEnabled: Bool
+    /// ユーザーが選んだモード。端末ごとの設定なのでUserDefaultsに保存する。
+    private(set) var mode: NewMunicipalityAlertMode
     private(set) var locationAuthorization: CLAuthorizationStatus
     private(set) var notificationAuthorization: UNAuthorizationStatus = .notDetermined
 
@@ -51,6 +56,8 @@ final class NewMunicipalityAlertMonitor: NSObject {
     /// 判定中に次の位置が届いても重ねて判定しない。大幅な位置の変化は数分おきにしか届かないため取りこぼしは小さい。
     @ObservationIgnored private var isChecking = false
     @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+
+    var isEnabled: Bool { mode != .off }
 
     var status: Status {
         guard isEnabled else { return .off }
@@ -69,7 +76,7 @@ final class NewMunicipalityAlertMonitor: NSObject {
     init(modelContainer: ModelContainer, userDefaults: UserDefaults = .standard) {
         self.modelContainer = modelContainer
         self.userDefaults = userDefaults
-        isEnabled = userDefaults.bool(forKey: Self.isEnabledKey)
+        mode = Self.loadMode(from: userDefaults)
         locationAuthorization = locationManager.authorizationStatus
         super.init()
         locationManager.delegate = self
@@ -86,11 +93,11 @@ final class NewMunicipalityAlertMonitor: NSObject {
         }
     }
 
-    /// 設定のトグルから呼ぶ。オンにしたときは、通知と位置情報(「常に」)の許可をこの時点で求める。
+    /// 設定の選択・お知らせのボタンから呼ぶ。オンにしたときは、通知と位置情報(「常に」)の許可をこの時点で求める。
     /// 何のための許可かが分かる操作の直後に求めるため、起動時には求めない。
-    func setEnabled(_ isEnabled: Bool) {
-        self.isEnabled = isEnabled
-        userDefaults.set(isEnabled, forKey: Self.isEnabledKey)
+    func setMode(_ mode: NewMunicipalityAlertMode) {
+        self.mode = mode
+        userDefaults.set(mode.rawValue, forKey: Self.modeKey)
         guard isEnabled else {
             locationManager.stopMonitoringSignificantLocationChanges()
             return
@@ -105,6 +112,17 @@ final class NewMunicipalityAlertMonitor: NSObject {
             }
             startIfEnabled()
         }
+    }
+
+    /// 保存されたモードを読む。市区町村のオン/オフしか無かった版でオンにしていた場合は、市区町村モードとして引き継ぐ。
+    static func loadMode(from userDefaults: UserDefaults) -> NewMunicipalityAlertMode {
+        if let rawValue = userDefaults.string(forKey: modeKey) {
+            return NewMunicipalityAlertMode(rawValue: rawValue) ?? .off
+        }
+        let mode: NewMunicipalityAlertMode = userDefaults.bool(forKey: legacyIsEnabledKey) ? .municipality : .off
+        userDefaults.set(mode.rawValue, forKey: modeKey)
+        userDefaults.removeObject(forKey: legacyIsEnabledKey)
+        return mode
     }
 
     /// 設定アプリで許可を変えて戻ってきた場合に表示を合わせるため、前面に戻るたびに呼ぶ。
@@ -122,7 +140,8 @@ final class NewMunicipalityAlertMonitor: NSObject {
     }
 
     private func check(_ location: CLLocation) async {
-        guard isEnabled, !isChecking,
+        let mode = mode
+        guard mode != .off, !isChecking,
               location.horizontalAccuracy >= 0, location.horizontalAccuracy <= Self.maximumHorizontalAccuracy
         else { return }
         isChecking = true
@@ -149,37 +168,71 @@ final class NewMunicipalityAlertMonitor: NSObject {
             }
 
             // 住所の確認を待つ間に記録された場合も反映するため、記録は判定の直前に読む。
-            let recordedCodes = Set(try context.fetch(FetchDescriptor<SavedPlace>()).compactMap { $0.municipality?.code })
+            let area = try alertArea(for: municipality, mode: mode, context: context)
             let decision = NewMunicipalityAlertPolicy().decide(
-                municipalityCode: municipality.code,
-                recordedCodes: recordedCodes,
-                history: loadHistory(),
+                areaCode: area.code,
+                recordedCodes: area.recordedCodes,
+                history: loadHistory(for: mode),
                 canPresentNotification: UIApplication.shared.applicationState != .active,
                 now: .now
             )
-            saveHistory(decision.updatedHistory)
+            saveHistory(decision.updatedHistory, for: mode)
             if decision.shouldNotify {
-                try await postNotification(for: municipality)
+                try await postNotification(identifier: area.notificationIdentifier, areaName: area.name)
             }
         } catch {
             // 裏の処理なのでユーザーには見せない。次に位置が届いたときに判定し直す。
-            logger.error("初めての市区町村の判定に失敗しました: \(error.localizedDescription, privacy: .public)")
+            logger.error("初めての区域の判定に失敗しました: \(error.localizedDescription, privacy: .public)")
         }
     }
 
-    private func postNotification(for municipality: Municipality) async throws {
+    private struct AlertArea {
+        let code: String
+        let name: String
+        let recordedCodes: Set<String>
+        let notificationIdentifier: String
+    }
+
+    /// モードに合わせて、判定する区域と記録済みとみなす区域を決める。
+    /// 都道府県は地図画面の「初めての都道府県」と同じく、県内の市区町村の記録か都道府県だけの記録があれば記録済みとする。
+    private func alertArea(for municipality: Municipality, mode: NewMunicipalityAlertMode, context: ModelContext) throws -> AlertArea {
+        let savedPlaces = try context.fetch(FetchDescriptor<SavedPlace>())
+        switch mode {
+        case .prefecture:
+            let explicitCodes = try context.fetch(FetchDescriptor<VisitedPrefecture>()).map(\.code)
+            return AlertArea(
+                code: municipality.prefectureCode,
+                name: municipality.prefectureName,
+                recordedCodes: Set(savedPlaces.compactMap { $0.municipality?.prefectureCode } + explicitCodes),
+                notificationIdentifier: "newPrefecture.\(municipality.prefectureCode)"
+            )
+        case .municipality, .off:
+            return AlertArea(
+                code: municipality.code,
+                name: municipality.prefectureName + municipality.municipalityName,
+                recordedCodes: Set(savedPlaces.compactMap { $0.municipality?.code }),
+                notificationIdentifier: "newMunicipality.\(municipality.code)"
+            )
+        }
+    }
+
+    private func postNotification(identifier: String, areaName: String) async throws {
         let content = UNMutableNotificationContent()
-        content.title = "初めての市区町村です"
-        content.body = "\(municipality.prefectureName)\(municipality.municipalityName)に入りました。よりみちして記録しませんか？"
+        // タイトルは付けない。アプリ名(よりみち)はOSが添えるため、本文の一文だけで伝わる。
+        content.body = NewMunicipalityAlertMessage.body(areaName: areaName)
         content.sound = .default
         content.threadIdentifier = "newMunicipality"
-        // 同じ市区町村の通知が残っていれば置き換える。タップするとアプリが開き、地図画面が現在地を確認して誘いシートを出す。
-        let request = UNNotificationRequest(identifier: "newMunicipality.\(municipality.code)", content: content, trigger: nil)
+        // 同じ区域の通知が残っていれば置き換える。タップするとアプリが開き、地図画面が現在地を確認して誘いシートを出す。
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
         try await UNUserNotificationCenter.current().add(request)
     }
 
-    private func loadHistory() -> NewMunicipalityAlertHistory {
-        guard let data = userDefaults.data(forKey: Self.historyKey) else { return NewMunicipalityAlertHistory() }
+    private static func historyKey(for mode: NewMunicipalityAlertMode) -> String {
+        mode == .prefecture ? prefectureHistoryKey : municipalityHistoryKey
+    }
+
+    private func loadHistory(for mode: NewMunicipalityAlertMode) -> NewMunicipalityAlertHistory {
+        guard let data = userDefaults.data(forKey: Self.historyKey(for: mode)) else { return NewMunicipalityAlertHistory() }
         do {
             return try JSONDecoder().decode(NewMunicipalityAlertHistory.self, from: data)
         } catch {
@@ -189,9 +242,9 @@ final class NewMunicipalityAlertMonitor: NSObject {
         }
     }
 
-    private func saveHistory(_ history: NewMunicipalityAlertHistory) {
+    private func saveHistory(_ history: NewMunicipalityAlertHistory, for mode: NewMunicipalityAlertMode) {
         do {
-            userDefaults.set(try JSONEncoder().encode(history), forKey: Self.historyKey)
+            userDefaults.set(try JSONEncoder().encode(history), forKey: Self.historyKey(for: mode))
         } catch {
             logger.error("通知の履歴を保存できませんでした: \(error.localizedDescription, privacy: .public)")
         }

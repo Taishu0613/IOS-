@@ -13,15 +13,24 @@ struct ContentView: View {
 
     @State private var masterLoadState: MasterLoadState
     @State private var tutorialGate = TutorialGate()
+    @State private var alertAnnouncementGate = NewMunicipalityAlertAnnouncementGate()
+    /// アプリのルートで渡される。プレビューなど渡されない場所では通知のお知らせを出さない。
+    @Environment(NewMunicipalityAlertMonitor.self) private var newMunicipalityAlert: NewMunicipalityAlertMonitor?
 
     init(modelContainer: ModelContainer? = nil) {
         self.modelContainer = modelContainer
         _masterLoadState = State(initialValue: Self.initialMasterLoadState(modelContainer: modelContainer))
     }
 
-    /// 地図が操作の主役になってよい状態か。読み込み画面・チュートリアルの裏にいる間はfalse。
+    /// 地図が操作の主役になってよい状態か。読み込み画面・チュートリアル・通知のお知らせの裏にいる間はfalse。
     private var isMapActive: Bool {
+        masterLoadState.isReady && !tutorialGate.isPresented && !isAlertAnnouncementPresented
+    }
+
+    /// 通知機能のお知らせはチュートリアルの後に出す。チュートリアルで通知の説明を読んだ直後に、その場で選べるようにするため。
+    private var isAlertAnnouncementPresented: Bool {
         masterLoadState.isReady && !tutorialGate.isPresented
+            && alertAnnouncementGate.isPresented && newMunicipalityAlert != nil
     }
 
     var body: some View {
@@ -48,6 +57,15 @@ struct ContentView: View {
                 TutorialScreen(onFinish: { withAnimation { tutorialGate.markSeen() } })
                     // 閉じる時のフェードアウト中も地図より手前に描かれるよう、明示的に前面へ置く。
                     .zIndex(1)
+            } else if isAlertAnnouncementPresented, let newMunicipalityAlert {
+                NewMunicipalityAlertAnnouncement { mode in
+                    withAnimation { alertAnnouncementGate.markSeen() }
+                    if mode != .off {
+                        newMunicipalityAlert.setMode(mode)
+                    }
+                }
+                .transition(.opacity)
+                .zIndex(1)
             }
         }
         .task {
