@@ -56,13 +56,6 @@ final class MunicipalityPuzzleStore {
     /// 用意する面積は50%で表示範囲の4倍、20%で約2倍になり、描くピースもほぼ面積に比例して増えるため小さめにしている。
     private static let prefetchMarginRatio = 0.2
 
-    /// 未訪問の市区町村の網目を描き始めるLOD。
-    ///
-    /// MapKitはポリゴン1枚ごとに描画を持つため、枚数がそのまま重さになる。全国(LOD0)では約2,000枚、
-    /// LOD1(〜800km)でも1,500枚前後になり操作が重くなる。一方LOD2(〜200km)なら最大600枚程度に収まる。
-    /// 広域では網目が細かすぎて見分けられないので、県境と訪問済みの市区町村だけを描く。
-    private static let unvisitedMunicipalityMinimumLOD = 2
-
     /// これより広い範囲(日本が画面の一部にしか映らない縮尺)では境界を描かない。
     /// 線が日本列島を覆って黒い塊に見えるだけで、情報にならないため。全国表示(約2,000km)は含む。
     private static let maximumVisibleWidthMeters = 4_000_000.0
@@ -230,7 +223,14 @@ final class MunicipalityPuzzleStore {
             prefectureBorders = makeLinePieces(lod: lod, from: borderLines, within: searchBox, filter: drawFilter)
             prefectureAreas = makePieces(.prefectures, lod: lod, from: prefectures, within: searchBox, filter: drawFilter)
             municipalityPieces = makePieces(.municipalities, lod: lod, from: municipalities, within: searchBox, filter: drawFilter)
-            showsUnvisitedMunicipalities = lod >= Self.unvisitedMunicipalityMinimumLOD
+            // 広域では網目が細かすぎて見分けられず重いだけなので、県境と訪問済みの市区町村だけを描く。
+            let showsUnvisited = UnvisitedMunicipalityVisibility.isVisible(
+                current: showsUnvisitedMunicipalities, visibleWidthMeters: visibleWidth
+            )
+            // 同じ値を書き戻しても観測している地図全体の再評価が走るため、変わったときだけ書き換える。
+            if showsUnvisited != showsUnvisitedMunicipalities {
+                showsUnvisitedMunicipalities = showsUnvisited
+            }
         } catch is CancellationError {
             // 新しい範囲・モードの読み込みに置き換わっただけなので何もしない。
         } catch {
