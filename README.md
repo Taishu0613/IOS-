@@ -113,7 +113,7 @@ SwiftDataのQueryを取得層として維持し、単一実装だけのRepositor
 進捗は永続化せず、SwiftDataの最新記録から導出する。永続モデルや外部依存は変更しない。
 
 未訪問ピンは未実装。行政区域の塗り分けは下記「市区町村パズル」を参照。
-現在地カードは起動時・明示的な再確認時に加え、地図画面を開いている間は移動に合わせて更新する（下記「移動中の市区町村の自動判定」）。アプリがバックグラウンドにある間の追跡はしない。
+現在地カードは起動時・明示的な再確認時に加え、地図画面を開いている間は移動に合わせて更新する（下記「移動中の市区町村の自動判定」）。アプリがバックグラウンドにある間の追跡はしない（裏では粗い位置で初めての市区町村だけを知らせる。下記「初めての市区町村で通知」）。
 
 ## 2026年9月23日: 市区町村パズル（境界ポリゴン）
 
@@ -232,3 +232,33 @@ MapKitはポリゴン1枚ごとに描画を持つため、枚数がそのまま�
 - 誘いシートは、ピン選択中・旅の記録を広げている間は出ない（既存の`handleMunicipalityVisitChange`の判定）。記録を折りたたんだ時に出る。
 - 自動判定中に現在地ボタン・記録が始まったら、そちらの結果を優先する（`locationRequestGeneration`で古い結果を捨てる）。
 - 移動中の実機での動作は未検証。Simulatorでは Features > Location > Freeway Drive などで確認する。
+
+## 初めての市区町村で通知（2026-10-12）
+
+ブランチ: `feature/first-city-notification`。記録が一度もない市区町村に入ったら、アプリを閉じていてもローカル通知で知らせる。
+「旅の記録」画面の「初めての市区町村で通知」トグルでオンにする（初期値はオフ）。
+
+- 「初めて」の判定は既存の記録（`SavedPlace`の市区町村コード）をそのまま使う。政令指定都市は区のコードで判定し、親市だけの記録では区を記録済みとみなさない（踏破率の規則と同じ）。
+- 裏での位置はCore Locationの大幅な位置の変化（significant-change location service）で受け取る。約500m以上の移動でしか届かず、GPSを常時動かさないので電池への負担が小さい。アプリが終了していても、位置が変わればシステムが裏で起動し直す（iOS 26.5シミュレータで、`simctl terminate`後に位置を動かして通知が出ることを確認）。ユーザーがアプリスイッチャーで終了させた場合はOSが起動し直さない。
+  - 却下した案: `CLBackgroundActivitySession`＋`liveUpdates`による常時追跡。GPSを動かし続けて電池を大きく使う割に、市区町村単位の判定には精度が過剰。
+- 裏で位置を受け取るには位置情報の「常に」許可が要る（`NSLocationAlwaysAndWhenInUseUsageDescription`）。トグルをオンにした時に通知と「常に」の許可を求め、起動時には求めない。足りない許可は脚注で伝え、設定アプリへの導線を出す。
+- 前面にある間は地図画面が自前の誘いシートを出すため通知しない。その場合も「知らせた」ものとして履歴に残し、裏へ回った後に同じ市区町村を通知しない。
+- 同じ市区町村の中で位置が変わっただけでは通知しない。境界を行き来しても、一度知らせた市区町村は12時間通知しない（`NewMunicipalityAlertPolicy.renotifyInterval`）。
+- 判定に使う位置の精度の上限は1,000m（`NewMunicipalityAlertMonitor.maximumHorizontalAccuracy`）。大幅な位置の変化は基地局・Wi-Fiの粗い位置で届くことが多いため、地図画面の自動判定（100m）より緩い。12時間・1,000mとも仮の値で、実機で調整する。
+- 通知をタップするとアプリが開き、地図画面が現在地を確認して従来の誘いシートを出す（通知専用の画面遷移は持たない）。
+
+### 責務とデータフロー
+
+`大幅な位置の変化 → NewMunicipalityAlertMonitor → AddressResolver + MunicipalityMatcher → SavedPlaceの記録コード → NewMunicipalityAlertPolicy → UNUserNotificationCenter`
+
+`Features/NewMunicipalityAlert/`にまとめてあり、フォルダと`WAGhackApp`・`SavedPlacesScreen`の各1か所を消せば機能を外せる。
+
+| ファイル | 責務 |
+|---|---|
+| `NewMunicipalityAlertPolicy.swift` | 通知するかの判定と履歴（値型。位置情報・通知・SwiftDataに依存しない） |
+| `NewMunicipalityAlertMonitor.swift` | 位置の監視・許可の要求・住所照合・通知の発行。`WAGhackApp`が所有し、environmentで画面へ渡す |
+| `NewMunicipalityAlertSettingsSection.swift` | 「旅の記録」画面のトグルと許可の案内 |
+
+- オン/オフは`UserDefaults`の`newMunicipalityAlert.isEnabled`、判定の履歴は`newMunicipalityAlert.history`（JSON）。永続モデル（SwiftData）は変更しない。
+- 裏で起動し直された場合も位置を受け取れるよう、`WAGhackApp`の初期化で`startIfEnabled()`を呼ぶ（画面が作られるのを待たない）。
+- 判定のロジックは`NewMunicipalityAlertPolicyTests`で検証する。実機での電池消費・通知の遅れは未検証。
