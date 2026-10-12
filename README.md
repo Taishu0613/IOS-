@@ -79,7 +79,7 @@ WAGhack/WAGhack/
 
 - `ExplorationProgress.swift`: SwiftData/SwiftUIに依存しない集計用の値型、対象判定、率、節目計算。
 - `SavedPlacesStore.swift`: Query結果を集計入力へ変換し、削除・保存失敗時のrollbackを担当。進捗を永続化・二重保持しない。
-- `SavedPlacesScreen.swift`: 全国サマリー、都道府県一覧、集計対象外の記録。
+- `SavedPlacesScreen.swift`: 全国サマリー、都道府県一覧、集計対象外の記録。集計は自分で計算せず、`MapScreen`が持つ`summary`を受け取る（シートを広げるたびに全市区町村を読み直すとメインスレッドが約0.1秒止まり、展開のアニメーションが引っかかっていたため）。
 - `PrefectureExplorationScreen.swift`: 都道府県の図鑑と訪問状況の絞り込み。
 - `ExplorationProgressCard.swift`: 共通の進捗表示と都道府県行。標準のProgressViewと可変文字サイズを使用。
 - `MunicipalityDetailScreen.swift`: 訪問の有無に依存しない豆知識詳細。
