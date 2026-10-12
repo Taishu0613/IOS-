@@ -53,14 +53,17 @@ struct MunicipalityMasterImporter {
         }
     }
 
-    func records(bundle: Bundle = .main) throws -> [MunicipalityMasterRecord] {
-        guard let url = bundle.url(forResource: Self.resourceName, withExtension: "csv") else {
+    func records(from data: Data) throws -> [MunicipalityMasterRecord] {
+        try records(from: String(decoding: data, as: UTF8.self))
+    }
+
+    /// アプリに同梱した市区町村マスタCSVの中身。同期の要否判定(MunicipalityMasterSyncGateの指紋)と
+    /// 読み込みの両方が同じ中身を参照するよう、ファイルの場所の解決をここに集める。
+    static func sourceData(bundle: Bundle = .main) throws -> Data {
+        guard let url = bundle.url(forResource: resourceName, withExtension: "csv") else {
             throw MunicipalityMasterImportError.resourceNotFound
         }
-
-        let data = try Data(contentsOf: url)
-        let source = String(decoding: data, as: UTF8.self)
-        return try records(from: source)
+        return try Data(contentsOf: url)
     }
 }
 

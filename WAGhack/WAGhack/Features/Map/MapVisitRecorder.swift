@@ -3,9 +3,26 @@ import Foundation
 import SwiftData
 
 struct MapVisitResult {
+    /// 記録後に何を伝えるべき結果か。見せ方(儀式シート・再記録ボタンの状態遷移など)の分岐はこれを基準にする。
+    enum Kind {
+        /// 都道府県内の市区町村の踏破率が25/50/75/100%を跨いだ。
+        case milestone
+        /// 初めての市区町村。
+        case firstVisit
+        /// 記録済みの市区町村を訪れ直しただけ(件数・踏破率は変わらない)。
+        case update
+    }
+
     let municipalityName: String
     let isFirstVisit: Bool
     let milestone: Int?
+
+    /// 節目は初訪問でしか起きないが、初訪問より重い達成として祝うため、両方に当てはまる時は節目を優先する。
+    var kind: Kind {
+        if milestone != nil { return .milestone }
+        if isFirstVisit { return .firstVisit }
+        return .update
+    }
 
     var title: String {
         if let milestone { return "\(milestone)%踏破達成！" }
