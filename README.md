@@ -113,7 +113,7 @@ SwiftDataのQueryを取得層として維持し、単一実装だけのRepositor
 進捗は永続化せず、SwiftDataの最新記録から導出する。永続モデルや外部依存は変更しない。
 
 未訪問ピンは未実装。行政区域の塗り分けは下記「市区町村パズル」を参照。
-現在地カードは起動時・明示的な再確認時に加え、地図画面を開いている間は移動に合わせて更新する（下記「移動中の市区町村の自動判定」）。アプリがバックグラウンドにある間の追跡はしない（裏では粗い位置で初めての市区町村だけを知らせる。下記「初めての市区町村で通知」）。
+現在地カードは起動時・明示的な再確認時に加え、地図画面を開いている間は移動に合わせて更新する（下記「移動中の市区町村の自動判定」）。アプリがバックグラウンドにある間の追跡はしない（裏では粗い位置で初めての市区町村・都道府県だけを知らせる。下記「初めての市区町村で通知」）。
 
 ## 2026年9月23日: 市区町村パズル（境界ポリゴン）
 
@@ -237,7 +237,20 @@ MapKitはポリゴン1枚ごとに描画を持つため、枚数がそのまま�
 ## 初めての市区町村で通知（2026-10-12）
 
 ブランチ: `feature/first-city-notification`。記録が一度もない市区町村に入ったら、アプリを閉じていてもローカル通知で知らせる。
-「旅の記録」画面の「初めての市区町村で通知」トグルでオンにする（初期値はオフ）。
+「旅の記録」画面の「初訪問の通知」で、オフ／市区町村ごと／都道府県のみ から選ぶ（初期値はオフ）。
+
+### 2026-10-12 追加: モードの選択・文言・お知らせ
+
+ブランチ: `feature/notification-modes`。
+
+- **都道府県のみ**: 記録が一度もない都道府県に入ったときだけ知らせ、県内で市区町村が変わっても知らせない。記録済みの判定は地図画面の「初めての都道府県です！」と同じで、県内の市区町村の記録（親市だけの記録も含む）か都道府県だけの記録があれば記録済み。
+  判定の規則（同じ区域では通知しない・12時間は再通知しない・前面では通知しない）は市区町村と共通で、`NewMunicipalityAlertPolicy`に区域のコードを渡して判定する。履歴はモードごとに別のキーで持つ。
+- **文言**: 「東京都中央区に初訪問です！よりみちを開いて記録しませんか？」／「埼玉県に初訪問です！…」。タイトルは付けない（アプリ名はOSが添える）。文言は`NewMunicipalityAlertMessage`。
+- **チュートリアル**: 「初めての街に入ったら、お知らせ」のページを、位置情報の許可を予告する最後のページの直前に追加した。
+- **お知らせ（「通知機能が追加されました」）**: この機能を含む版を初めて起動したとき、チュートリアルの後に1回だけ出す。その場で「市区町村ごと」「都道府県のみ」「今はしない」を選べ、オンにすると通知と位置情報「常に」の許可を求める。
+  - 版番号ではなく「見たか」（`announcement.newMunicipalityAlert.seen`）を保存するため、新規インストールでも、以降の版から使い始めた人でも1回出る。既にいずれかのモードを選んでいる人には出さない。
+  - 地図の常駐シートや儀式シートと競合しないよう、シートではなくチュートリアルと同じく`ContentView`のZStackに重ね、表示中は地図を`isActive=false`にしておく。
+- **設定の引き継ぎ**: オン/オフだけだった版（`newMunicipalityAlert.isEnabled`）でオンにしていた人は、市区町村モードとして`newMunicipalityAlert.mode`へ移す。市区町村モードの履歴は以前と同じキーを使い、JSONのキー名`lastMunicipalityCode`も保つ。
 
 - 「初めて」の判定は既存の記録（`SavedPlace`の市区町村コード）をそのまま使う。政令指定都市は区のコードで判定し、親市だけの記録では区を記録済みとみなさない（踏破率の規則と同じ）。
 - 裏での位置はCore Locationの大幅な位置の変化（significant-change location service）で受け取る。約500m以上の移動でしか届かず、GPSを常時動かさないので電池への負担が小さい。アプリが終了していても、位置が変わればシステムが裏で起動し直す（iOS 26.5シミュレータで、`simctl terminate`後に位置を動かして通知が出ることを確認）。ユーザーがアプリスイッチャーで終了させた場合はOSが起動し直さない。
@@ -252,14 +265,15 @@ MapKitはポリゴン1枚ごとに描画を持つため、枚数がそのまま�
 
 `大幅な位置の変化 → NewMunicipalityAlertMonitor → AddressResolver + MunicipalityMatcher → SavedPlaceの記録コード → NewMunicipalityAlertPolicy → UNUserNotificationCenter`
 
-`Features/NewMunicipalityAlert/`にまとめてあり、フォルダと`WAGhackApp`・`SavedPlacesScreen`の各1か所を消せば機能を外せる。
+`Features/NewMunicipalityAlert/`にまとめてあり、フォルダと`WAGhackApp`・`SavedPlacesScreen`・`ContentView`（お知らせ）・`TutorialContent`（1ページ）の該当箇所を消せば機能を外せる。
 
 | ファイル | 責務 |
 |---|---|
-| `NewMunicipalityAlertPolicy.swift` | 通知するかの判定と履歴（値型。位置情報・通知・SwiftDataに依存しない） |
-| `NewMunicipalityAlertMonitor.swift` | 位置の監視・許可の要求・住所照合・通知の発行。`WAGhackApp`が所有し、environmentで画面へ渡す |
-| `NewMunicipalityAlertSettingsSection.swift` | 「旅の記録」画面のトグルと許可の案内 |
+| `NewMunicipalityAlertPolicy.swift` | モード・通知の文言・通知するかの判定と履歴（値型。位置情報・通知・SwiftDataに依存しない） |
+| `NewMunicipalityAlertMonitor.swift` | 位置の監視・許可の要求・住所照合・モードに応じた区域の決定・通知の発行。`WAGhackApp`が所有し、environmentで画面へ渡す |
+| `NewMunicipalityAlertSettingsSection.swift` | 「旅の記録」画面のモード選択と許可の案内 |
+| `NewMunicipalityAlertAnnouncement.swift` | 「通知機能が追加されました」のお知らせと、1回だけ出すためのゲート |
 
-- オン/オフは`UserDefaults`の`newMunicipalityAlert.isEnabled`、判定の履歴は`newMunicipalityAlert.history`（JSON）。永続モデル（SwiftData）は変更しない。
+- モードは`UserDefaults`の`newMunicipalityAlert.mode`、判定の履歴は市区町村が`newMunicipalityAlert.history`、都道府県が`newMunicipalityAlert.prefectureHistory`（JSON）。永続モデル（SwiftData）は変更しない。
 - 裏で起動し直された場合も位置を受け取れるよう、`WAGhackApp`の初期化で`startIfEnabled()`を呼ぶ（画面が作られるのを待たない）。
-- 判定のロジックは`NewMunicipalityAlertPolicyTests`で検証する。実機での電池消費・通知の遅れは未検証。
+- 判定のロジック・文言・モードの引き継ぎ・お知らせのゲートは`NewMunicipalityAlertPolicyTests`で検証する。実機での電池消費・通知の遅れは未検証。
