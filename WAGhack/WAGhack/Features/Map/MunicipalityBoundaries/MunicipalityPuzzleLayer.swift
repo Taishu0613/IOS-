@@ -46,10 +46,9 @@ struct MunicipalityPuzzleLayer: MapContent {
             let style = MunicipalityPieceStyle(
                 isVisited: visitedCodes.contains(piece.code), lineWidths: lineWidths, emphasis: municipalityLook(for: piece.code)
             )
-            MapPolygon(piece.polygon)
-                .foregroundStyle(style.fill)
-                .stroke(style.stroke, style: style.strokeStyle)
-                .mapOverlayLevel(level: .aboveRoads)
+            BoundaryPieceContent(
+                piece: piece, fill: style.fill, stroke: style.stroke, strokeStyle: style.strokeStyle, level: .aboveRoads
+            )
         }
         ForEach(prefectureBorders) { border in
             // 線には`mapOverlayLevel(.aboveLabels)`を付けないこと。付けると線が描かれなくなる
@@ -62,26 +61,26 @@ struct MunicipalityPuzzleLayer: MapContent {
         // 縁取りだけのポリゴンは`.aboveLabels`でも描ける(現在地の縁取りと同じ方法)。
         ForEach(visitedPrefectureAreas) { area in
             let emphasizedOutline = prefectureLook(for: area.code)?.outline
-            MapPolygon(area.polygon)
-                .foregroundStyle(.clear)
-                .stroke(
-                    emphasizedOutline?.paint.color ?? PrefectureConquestStyle.outlineStroke,
-                    style: emphasizedOutline?.strokeStyle(scaledBy: lineWidths.outlineScale)
-                        ?? PrefectureConquestStyle.outlineStrokeStyle(lineWidths)
-                )
-                .mapOverlayLevel(level: .aboveLabels)
+            BoundaryPieceContent(
+                piece: area,
+                fill: nil,
+                stroke: emphasizedOutline?.paint.color ?? PrefectureConquestStyle.outlineStroke,
+                strokeStyle: emphasizedOutline?.strokeStyle(scaledBy: lineWidths.outlineScale)
+                    ?? PrefectureConquestStyle.outlineStrokeStyle(lineWidths),
+                level: .aboveLabels
+            )
         }
         // 同じ上の階層の中では県境と前後することがあるが、縁取りの方が太いので隠れない。
         ForEach(currentPieces) { piece in
             let emphasizedOutline = municipalityLook(for: piece.code)?.outline
-            MapPolygon(piece.polygon)
-                .foregroundStyle(.clear)
-                .stroke(
-                    emphasizedOutline?.paint.color ?? CurrentMunicipalityOutlineStyle.stroke,
-                    style: emphasizedOutline?.strokeStyle(scaledBy: lineWidths.outlineScale)
-                        ?? CurrentMunicipalityOutlineStyle.strokeStyle(lineWidths)
-                )
-                .mapOverlayLevel(level: .aboveLabels)
+            BoundaryPieceContent(
+                piece: piece,
+                fill: nil,
+                stroke: emphasizedOutline?.paint.color ?? CurrentMunicipalityOutlineStyle.stroke,
+                strokeStyle: emphasizedOutline?.strokeStyle(scaledBy: lineWidths.outlineScale)
+                    ?? CurrentMunicipalityOutlineStyle.strokeStyle(lineWidths),
+                level: .aboveLabels
+            )
         }
     }
 
@@ -127,6 +126,38 @@ struct MunicipalityPuzzleLayer: MapContent {
     private var currentPieces: [BoundaryPiece] {
         guard prefectureConquestLevels == nil, let outlinedCode else { return [] }
         return municipalityPieces.filter { $0.code == outlinedCode }
+    }
+}
+
+/// ピース1枚の塗りと縁取り。穴のあるピースは、塗りと縁取りを別のポリゴンで描く。
+/// 穴のあるポリゴンの縁取りは指定より太く描かれるため(`BoundaryPiece.outlines`参照)。
+private struct BoundaryPieceContent: MapContent {
+    let piece: BoundaryPiece
+    /// nilなら塗らず、縁取りだけを描く。
+    let fill: Color?
+    let stroke: Color
+    let strokeStyle: StrokeStyle
+    let level: MKOverlayLevel
+
+    var body: some MapContent {
+        if let outlines = piece.outlines {
+            // 縁取りだけの表示でも、塗りのポリゴンは透明にして置く。`if let fill`で省くと、
+            // 地図上の境界がまとめて描かれなくなった(iOS 26.5シミュレータ。現在地が川越市のときに確認)。
+            MapPolygon(piece.polygon)
+                .foregroundStyle(fill ?? .clear)
+                .mapOverlayLevel(level: level)
+            ForEach(outlines) { outline in
+                MapPolygon(outline.polygon)
+                    .foregroundStyle(.clear)
+                    .stroke(stroke, style: strokeStyle)
+                    .mapOverlayLevel(level: level)
+            }
+        } else {
+            MapPolygon(piece.polygon)
+                .foregroundStyle(fill ?? .clear)
+                .stroke(stroke, style: strokeStyle)
+                .mapOverlayLevel(level: level)
+        }
     }
 }
 

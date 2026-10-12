@@ -9,6 +9,38 @@ struct BoundaryPiece: Identifiable {
     /// 市区町村のピースなら行政区域コード、県境のピースなら都道府県コード。
     let code: String
     let polygon: MKPolygon
+    /// 穴のあるピースの輪郭(外周と各穴)を、それぞれ穴の無いポリゴンにしたもの。穴が無ければnilで、線は`polygon`の縁取りで描く。
+    ///
+    /// MapKitは穴のあるポリゴンの縁取りを、同じ太さを指定しても穴の無いポリゴンより太くぼやけて描く
+    /// (iOS 26.5シミュレータで確認。川越市・小金井市など飛び地を囲む市区町村や、東京都などの境界だけが、
+    /// 地図を引いたときに県境のような太い線に見えていた。穴を外すと他と同じ太さになる)。
+    /// そのため穴のあるピースは、塗りだけを`polygon`で描き、線はこの輪郭で別に描く(`MunicipalityPuzzleLayer`)。
+    /// `MKPolyline`ではなくポリゴンにしているのは、縁取りと同じ階層(`mapOverlayLevel`)に置けるようにするため
+    /// (線は`.aboveLabels`に置くと描かれず、既定の階層では灰色の県境の下に隠れることがある)。
+    let outlines: [BoundaryOutline]?
+
+    init(id: String, code: String, shape: BoundaryPolygon) {
+        self.id = id
+        self.code = code
+        let holes = shape.holes.map { MKPolygon(coordinates: $0, count: $0.count) }
+        polygon = MKPolygon(coordinates: shape.exterior, count: shape.exterior.count, interiorPolygons: holes)
+        if shape.holes.isEmpty {
+            outlines = nil
+        } else {
+            let rings = [shape.exterior] + shape.holes
+            outlines = rings.enumerated().map { index, ring in
+                BoundaryOutline(id: "\(id)/outline/\(index)", polygon: MKPolygon(coordinates: ring, count: ring.count))
+            }
+        }
+    }
+}
+
+/// 穴のあるピースの輪郭1つ(外周または穴1つ)。縁取りを描くためだけに使い、塗らない。
+struct BoundaryOutline: Identifiable {
+    /// ピースのidと輪の番号(0が外周、1以降が穴)の組み合わせ。
+    let id: String
+    /// 穴を持たないポリゴン。
+    let polygon: MKPolygon
 }
 
 /// 地図に載せる県境・海岸線1本。
@@ -45,9 +77,9 @@ final class MunicipalityPuzzleStore {
     /// 表示モードだけが変わったときに、同じ範囲で読み込み直すために覚えておく。
     @ObservationIgnored private var lastRegion: MKCoordinateRegion?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
-    /// `MKPolygon`を作り直すと地図側で同じ形の再描画が走るため、LODが変わるまで使い回す。
+    /// `MKPolygon`(と穴のあるピースの輪郭)を作り直すと地図側で同じ形の再描画が走るため、LODが変わるまで使い回す。
     /// 同じLODのまま全国を見て回るとピース数ぶん増えるが、1つあたりは座標の参照程度なので上限は設けていない。
-    @ObservationIgnored private var polygonCache: [String: MKPolygon] = [:]
+    @ObservationIgnored private var pieceCache: [String: BoundaryPiece] = [:]
     @ObservationIgnored private var polylineCache: [String: MKPolyline] = [:]
     @ObservationIgnored private let logger = Logger(subsystem: "com.wakasugi.yorimichi", category: "MunicipalityPuzzle")
 
@@ -215,7 +247,7 @@ final class MunicipalityPuzzleStore {
             try Task.checkCancellation()
 
             if lod != currentLOD {
-                polygonCache = [:]
+                pieceCache = [:]
                 polylineCache = [:]
                 currentLOD = lod
             }
@@ -261,7 +293,7 @@ final class MunicipalityPuzzleStore {
                 // LODをidに含めること。含めないとLODが変わってもidが同じになり、地図側が古いLODの形を
                 // 置き換えずに残す。簡略化の違う2本の線が重なり、境界の一部だけが太い帯に見える不具合が出ていた。
                 let id = "lod\(lod)/\(layer.rawValue)/\(boundary.code)/\(index)"
-                pieces.append(BoundaryPiece(id: id, code: boundary.code, polygon: cachedPolygon(id: id, for: polygon)))
+                pieces.append(cachedPiece(id: id, code: boundary.code, for: polygon))
             }
         }
         return pieces
@@ -289,11 +321,10 @@ final class MunicipalityPuzzleStore {
         return made
     }
 
-    private func cachedPolygon(id: String, for polygon: BoundaryPolygon) -> MKPolygon {
-        if let cached = polygonCache[id] { return cached }
-        let holes = polygon.holes.map { MKPolygon(coordinates: $0, count: $0.count) }
-        let made = MKPolygon(coordinates: polygon.exterior, count: polygon.exterior.count, interiorPolygons: holes)
-        polygonCache[id] = made
+    private func cachedPiece(id: String, code: String, for polygon: BoundaryPolygon) -> BoundaryPiece {
+        if let cached = pieceCache[id] { return cached }
+        let made = BoundaryPiece(id: id, code: code, shape: polygon)
+        pieceCache[id] = made
         return made
     }
 }
