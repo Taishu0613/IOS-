@@ -1,24 +1,54 @@
 import os
 import SwiftUI
 
+/// 踏破率ヘッダーのページ。地図の塗り分け(市区町村のパズル / 都道府県の制覇率)もこれに連動するため、
+/// ヘッダー自身ではなく`MapScreen`が所有する。
+///
+/// `@AppStorage`に保存するためString型のrawValueを持つ。rawValueを変えると保存済みの選択が失われるので変えないこと。
+enum MapProgressPage: String, CaseIterable {
+    /// 現在地の都道府県内の市区町村踏破率。地図は市区町村のピースで塗る。
+    case municipalities
+    /// 全国の都道府県制覇率。地図は都道府県ごとに市区町村踏破率の濃さで塗る。
+    case prefectures
+
+    /// ヘッダー上部のセグメントに出す名前。
+    var title: String {
+        switch self {
+        case .municipalities: "市区町村"
+        case .prefectures: "都道府県"
+        }
+    }
+}
+
 struct MapProgressHeader: View {
     let prefecture: PrefectureExploration?
     let summary: ExplorationSummary
+    /// 市区町村ページに添える、現在地の都道府県を市区町村に分けた地図。読み込み前はnil(枠だけ空けておく)。
+    let prefectureMap: SilhouetteMap?
+    /// 全国ページに添える日本地図。読み込み前はnil。
+    let japanMap: SilhouetteMap?
+    /// 切り替えの主な入口はカード上部のセグメント。横スワイプとページドットだけでは、
+    /// 切り替えられること自体と、地図の塗り分けまで変わることが伝わらなかったため。
+    /// TabView(.page)のスワイプも、慣れた人向けの近道として残している。
+    @Binding var page: MapProgressPage
     /// 市区町村ページ(その都道府県内の市区町村踏破率)をタップした時。
     let showPrefecture: (PrefectureExploration) -> Void
     /// 全国ページ(都道府県の踏破率)をタップした時。
     let showNationwide: () -> Void
 
-    /// 0=市区町村(都道府県別)、1=全国(都道府県別)。TabView(.page)のネイティブなページングに任せることで、
-    /// スワイプの取り合い・気づきにくさ・モーションの薄さを自前実装せずに解決する。
-    @State private var page = 1
-
     private var canToggle: Bool { prefecture != nil }
-    /// カードの高さのみを固定し、ドットの分は含めない(ドットはカードの外に別途置く)。
+    /// 日本地図で塗る都道府県。
+    private var visitedPrefectureCodes: Set<String> {
+        Set(summary.visitedPrefectures.map(\.code))
+    }
+    /// 都道府県の地図・日本地図を描く枠の一辺。カード(96pt)から上下の余白12ptずつを引いた72ptに、ゆとりを持って収まる大きさ。
+    private static let silhouetteSize = SilhouetteMapStore.headerMapSize
+    /// カードの高さのみを固定し、セグメントの分は含めない(セグメントはカードの外に別途置く)。
     private static let cardHeight: CGFloat = 96
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 6) {
+            pagePicker
             TabView(selection: $page) {
                 if let prefecture {
                     pageView(
@@ -28,8 +58,13 @@ struct MapProgressHeader: View {
                         tint: nil,
                         accessibilityHint: "タップで\(prefecture.name)の市区町村制覇率を開きます",
                         action: { showPrefecture(prefecture) }
-                    )
-                    .tag(0)
+                    ) {
+                        if let prefectureMap {
+                            // 塗りを踏破率の数字と一致させるため、踏破率と同じ訪問済みコードを使う。
+                            SilhouetteMapView(map: prefectureMap, visitedCodes: prefecture.visitedCodes)
+                        }
+                    }
+                    .tag(MapProgressPage.municipalities)
                 }
                 pageView(
                     title: "都道府県 \(summary.prefectureProgress.visited) / \(summary.prefectureProgress.total) ",
@@ -38,56 +73,72 @@ struct MapProgressHeader: View {
                     tint: .cyan,
                     accessibilityHint: "タップで都道府県の制覇率を開きます",
                     action: showNationwide
-                )
-                .tag(1)
+                ) {
+                    if let japanMap {
+                        SilhouetteMapView(map: japanMap, visitedCodes: visitedPrefectureCodes)
+                    }
+                }
+                .tag(MapProgressPage.prefectures)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .frame(height: Self.cardHeight)
-            // システム標準のページドットはカードの内側下端に重なってしまうため、自前でカードの外に置く。
-            if canToggle {
-                pageDots
-            }
         }
-        .onChange(of: canToggle, initial: true) { _, canToggle in
-            // 現在地の都道府県が不明な間は市区町村ページ自体が存在しないので、全国ページへ寄せる。
-            if !canToggle { page = 1 }
-        }
+        // 現在地の都道府県が不明な間に全国ページへ寄せるのは`MapScreen`側で行う(ここでpageへ書き込むと、
+        // 起動直後に保存済みの選択が都道府県で上書きされてしまうため)。
         .sensoryFeedback(.selection, trigger: page)
     }
 
-    private var pageDots: some View {
-        HStack(spacing: 6) {
-            ForEach([0, 1], id: \.self) { index in
-                Circle()
-                    .fill(index == page ? Color.primary.opacity(0.8) : Color.primary.opacity(0.25))
-                    .frame(width: 6, height: 6)
+    /// 踏破率の単位(=地図の塗り分け)を選ぶセグメント。
+    /// 現在地の都道府県が不明で市区町村ページが無い間も、ヘッダーの高さが変わって地図が揺れないよう
+    /// 隠さずに無効化だけする。
+    private var pagePicker: some View {
+        Picker("踏破率の単位", selection: $page) {
+            ForEach(MapProgressPage.allCases, id: \.self) { page in
+                Text(page.title).tag(page)
             }
         }
-        .accessibilityHidden(true)
+        .pickerStyle(.segmented)
+        // 標準の溝はほぼ透明で、地図の文字と重なって未選択側が読めないため、カードと同じガラスを敷く。
+        .glassEffect(.regular, in: Capsule())
+        .disabled(!canToggle)
+        // カードと左右の端をそろえる(カードはページ間の隙間として左右6ptずつ内側に入っている)。
+        .padding(.horizontal, 6)
     }
 
-    private func pageView(
+    private func pageView<Silhouette: View>(
         title: String,
         progress: ExplorationCount,
         unit: String,
         tint: Color?,
         accessibilityHint: String,
-        action: @escaping () -> Void
+        action: @escaping () -> Void,
+        @ViewBuilder silhouette: () -> Silhouette
     ) -> some View {
         // onTapGestureではなくButtonにして、VoiceOverからも「ボタン」として開けるようにする。
         // Buttonはドラッグを取り合わないので、TabViewの横スワイプによるページ切り替えはそのまま効く。
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                ProgressView(value: progress.fraction)
-                    .tint(.teal)
-                    .accessibilityLabel("\(unit)踏破率")
-                    .accessibilityValue(progress.percentageText)
-                Text("\(progress.percentageText) · \(progress.nextGoalText(unit: unit))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        // 右に形を置いた分だけ横幅が狭いので、長い県名でも2行にならず縮めて収める(カードの高さは固定のため)。
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    ProgressView(value: progress.fraction)
+                        .tint(.teal)
+                        .accessibilityLabel("\(unit)踏破率")
+                        .accessibilityValue(progress.percentageText)
+                    Text("\(progress.percentageText) · \(progress.nextGoalText(unit: unit))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                // 読み込み前も枠は確保しておき、形が現れたときに文字やバーの幅が変わって揺れないようにする。
+                silhouette()
+                    .frame(width: Self.silhouetteSize, height: Self.silhouetteSize)
+                    .transition(.opacity)
             }
+            .animation(.easeOut(duration: 0.25), value: prefectureMap != nil)
+            .animation(.easeOut(duration: 0.25), value: japanMap != nil)
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             // 都道府県制覇率(全国ページ)は市区町村ページと見分けがつくよう、ごく薄く水色にする。
@@ -106,6 +157,9 @@ struct MapProgressHeader: View {
 /// タップで現在地の詳細シートを開く。
 struct MapCurrentLocationBadge: View {
     let name: String
+    /// 現在地の市区町村を記録済みか。見た目は変えず、読み上げだけで伝える。地図上では未記録の区域を
+    /// 縁取りの脈打ち(`MapAreaEffectController`)で知らせているため、見えない人にも同じ情報を届ける。
+    let isRecorded: Bool
     let onTap: () -> Void
 
     var body: some View {
@@ -120,7 +174,29 @@ struct MapCurrentLocationBadge: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("現在地：\(name)")
+        .accessibilityValue(isRecorded ? "" : "未記録")
         .accessibilityHint("タップで現在地の詳細を表示します")
+    }
+}
+
+/// 記録した場所のピンを表示するか・隠すかを切り替える丸ボタン。
+/// 見た目は隣の「現在地へ戻る」ボタンと揃える(44pt・Liquid Glassの円)。
+/// 選択肢が2つしかないのでメニューにはせず、1タップで切り替える。アイコンは今の状態を表す。
+struct MapPinVisibilityButton: View {
+    @Binding var showsPins: Bool
+
+    var body: some View {
+        Button("記録のピン", systemImage: showsPins ? "mappin.and.ellipse" : "mappin.slash") {
+            showsPins.toggle()
+        }
+        .labelStyle(.iconOnly)
+        .font(.title2)
+        .frame(width: 56, height: 56)
+        .contentShape(Circle())
+        .glassEffect(.regular, in: Circle())
+        .accessibilityAddTraits(.isToggle)
+        .accessibilityValue(showsPins ? "表示中" : "非表示")
+        .sensoryFeedback(.selection, trigger: showsPins)
     }
 }
 
@@ -141,16 +217,11 @@ struct MapCurrentPlaceCard: View {
     let showRecords: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        Group {
             if let statusText {
-                currentLocationLabel
-                ProgressView(statusText).font(.body)
+                MapLocationStatusRow(status: .locating(statusText), retry: refresh)
             } else if let errorMessage {
-                currentLocationLabel
-                Label(errorMessage, systemImage: "exclamationmark.circle")
-                    .font(.body)
-                Button("現在地を再確認", action: refresh)
-                    .buttonStyle(.borderedProminent)
+                MapLocationStatusRow(status: .failed(errorMessage), retry: refresh)
             } else {
                 MapRecordsSummaryRow(
                     latestPlace: latestPlace,
@@ -163,11 +234,89 @@ struct MapCurrentPlaceCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
 
-    private var currentLocationLabel: some View {
-        Label("現在地", systemImage: "location.fill")
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.teal)
+/// 現在地の取得中・取得失敗を、「旅の記録」の1行(`MapRecordsSummaryRow`)と同じ形(アイコン+見出し+1行の補足
+/// +右端のボタン)で見せる。折りたたみシートの高さを状態によらず一定に保ち、切り替わりで地図が揺れないようにするため、
+/// 行を増やす表示はしない。1行に収まらないエラー文は、補足の部分をタップするとポップオーバーで全文を読める。
+private struct MapLocationStatusRow: View {
+    enum Status {
+        case locating(String)
+        case failed(String)
+    }
+
+    let status: Status
+    let retry: () -> Void
+
+    @State private var isShowingFullMessage = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            switch status {
+            case .locating(let message):
+                HStack(spacing: 12) {
+                    icon(systemName: "location.fill", color: .teal, isPulsing: true)
+                    texts(title: "現在地", message: message)
+                    Spacer(minLength: 0)
+                }
+                .accessibilityElement(children: .combine)
+            case .failed(let message):
+                Button {
+                    isShowingFullMessage = true
+                } label: {
+                    HStack(spacing: 12) {
+                        icon(systemName: "location.slash.fill", color: .orange, isPulsing: false)
+                        texts(title: "現在地を取得できません", message: message)
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("タップで詳細を表示します")
+                // シートの中でも全画面のシートに化けず、文言の近くに小さく出す。
+                .popover(isPresented: $isShowingFullMessage) {
+                    Text(message)
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding()
+                        .frame(idealWidth: 300)
+                        .presentationCompactAdaptation(.popover)
+                }
+
+                // 見た目は再記録ボタン(MapRerecordButton)とそろえる。
+                Button("再確認", systemImage: "arrow.clockwise", action: retry)
+                    .font(.subheadline.weight(.semibold))
+                    .buttonStyle(.glass)
+                    .accessibilityLabel("現在地を再確認")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// 「旅の記録」行の本のアイコンと同じ幅を確保し、状態が切り替わっても見出しの位置がずれないようにする。
+    /// 数値で幅を決め打ちしないのは、Dynamic Typeでアイコンが大きくなった時にもそろえるため。
+    private func icon(systemName: String, color: Color, isPulsing: Bool) -> some View {
+        Image(systemName: "book.closed.fill")
+            .font(.title2)
+            .hidden()
+            .overlay {
+                Image(systemName: systemName)
+                    .font(.title2)
+                    .foregroundStyle(color)
+                    .symbolEffect(.pulse, isActive: isPulsing)
+            }
+            .accessibilityHidden(true)
+    }
+
+    private func texts(title: String, message: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.headline)
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
     }
 }
 
@@ -232,7 +381,7 @@ enum MapRerecordButtonPhase: CaseIterable {
 
     fileprivate var title: String {
         switch self {
-        case .idle: "再記録"
+        case .idle: "ピンを立て直す"
         case .recording: "記録中"
         case .updated: "更新済み"
         }

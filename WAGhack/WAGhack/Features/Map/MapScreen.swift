@@ -10,20 +10,45 @@ struct MapScreen: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \SavedPlace.savedAt, order: .reverse) private var savedPlaces: [SavedPlace]
     @Query(MapScreen.municipalityDescriptor) private var municipalities: [Municipality]
     @Query private var visitedPrefectures: [VisitedPrefecture]
 
-    @State private var cameraPosition: MapCameraPosition = .userLocation(followsHeading: false, fallback: .automatic)
+    /// 現在地が分かるまでは前回見ていた範囲を見せる(`MapRegionMemory`参照)。初回起動などで無ければ従来どおり自動。
+    @State private var cameraPosition: MapCameraPosition = .userLocation(
+        followsHeading: false,
+        fallback: MapRegionMemory.load().map { .region($0) } ?? .automatic
+    )
     @State private var viewModel = MapViewModel()
+    /// 市区町村ポリゴン(パズルのピース)の形。訪問済みかどうかはsavedPlacesから都度求める。
+    @State private var puzzleStore = MunicipalityPuzzleStore()
+    /// 踏破率ヘッダーやシート内の進捗に添える小さな地図。シート内の画面へはenvironmentで渡す。
+    @State private var silhouetteStore = SilhouetteMapStore()
+    /// 地図の区域に重ねる演出(記録したときの「はまる」演出・未訪問の区域の脈打ち)と、その触覚。
+    @State private var areaEffect = MapAreaEffectController()
+    /// 記録した場所のピンを地図に出すか。塗り分けを見たいときに隠せるようにする。
+    /// 次回起動時も同じ表示で始められるよう端末に保存する(表示の好みなのでSwiftDataには持たない)。
+    @AppStorage("map.showsPlacePins") private var showsPlacePins = true
+    /// ユーザーが選んだ踏破率ヘッダーのページ。地図の塗り分けも連動させるため、ヘッダーではなくここで持つ。
+    /// 次回起動時も同じ表示で始められるよう端末に保存する。初期値は従来どおり全国(都道府県)ページ。
+    /// 実際に表示するページは`progressPage`を参照すること。
+    @AppStorage("map.progressPage") private var preferredProgressPage: MapProgressPage = .prefectures
     @State private var selectedPlaceID: PersistentIdentifier?
     @State private var actionTask: Task<Void, Never>?
+    @State private var focusTask: Task<Void, Never>?
+    /// 最後にカメラが止まった時の表示範囲。区域へ寄せるアニメーションの長さを、そこからの変化量で決めるために使う。
+    @State private var visibleMapRect: MKMapRect?
     @State private var mapHeight: CGFloat = 0
+    /// 地図の横幅(pt)。表示範囲と合わせて縮尺(1ptあたりのm)を求めるために使う。
+    @State private var mapWidth: CGFloat = 0
+    /// 今の縮尺での境界線の太さ。カメラが止まったときだけ更新する(動かしている最中に変えると毎フレーム全ピースを描き直すため)。
+    @State private var boundaryLineWidths = BoundaryLineWidths.widest
     /// ヘッダー(進捗カード+現在地バッジ/戻るボタンの行)の実測高さ。MapKit標準のコンパス/スケール表示が
     /// ここに被らないよう、Mapのセーフエリアをこの分だけ広げる。
     @State private var headerOverlayHeight: CGFloat = 0
     @State private var isSheetPresented = false
-    @State private var sheetDetent: PresentationDetent = .height(Self.recordsCompactHeight)
+    @State private var sheetDetent: PresentationDetent = .height(Self.compactSheetHeight)
     /// シートが中段以上に広がっているか。折りたたみ中は現在地カード、広げると旅の記録のスタックに切り替わる。
     @State private var isSheetExpanded = false
     @State private var sheetPath: [MapSheetRoute] = []
@@ -40,9 +65,6 @@ struct MapScreen: View {
     /// アプリを以前から使っているユーザーにも一度は見せたいため、チュートリアルの表示有無に関係なく
     /// このフラグ単独で判定する。
     @AppStorage("japan.hasRecorded") private var hasRecordedJapan = false
-    /// 都道府県を記録できた回数。触覚のきっかけにだけ使う。儀式シートは記録と同時に閉じるため、
-    /// シートの中に触覚を付けると閉じる途中で取り除かれて鳴らないことがあり、常に残るこの画面側で鳴らす。
-    @State private var prefectureRecordedFeedback = 0
     /// 各儀式シートの実測高さ。Wikipedia画像が非同期で後から差し込まれて縦に伸びるため、
     /// 固定値ではなく実測してシートの高さに反映する(初期値は画像0枚の時の見た目に合わせてある)。
     /// 「日本」の儀式シートだけは帯の場所を最初から確保した固定の高さにしている(presentationHeight参照)。
@@ -57,14 +79,12 @@ struct MapScreen: View {
     /// 全市区町村(1,898件)を集計し直すと体感できるラグになるため、bodyでは計算しない。
     @State private var summary = ExplorationSummary(prefectures: [], eligibleCodes: [])
 
-    // 折りたたみ時のシート高さ。内容の行数が状態で変わるため、状態ごとに固定値を持つ。
-    /// 「旅の記録」の1行(MapRecordsSummaryRow)だけの高さ。訪問済みでも未訪問でも行数は変わらない
-    /// (違いは右端の再記録ボタンの有無だけ)ので、1つの値にまとめている。再記録の保存中・完了後も
-    /// ボタンの見た目が変わるだけで行は増やさない(`MapViewModel.Operation.statusText`参照)。
+    /// 折りたたみ時のシート高さ。「旅の記録」の1行(MapRecordsSummaryRow)の高さで、現在地の取得中・
+    /// 取得失敗の行(MapLocationStatusRow)も同じ1行の形にそろえてあるため、状態によらず1つの値にしている。
+    /// 状態が切り替わるたびにシートが伸び縮みして地図が揺れないようにするため、行数を増やす表示はここに置かない。
+    /// 再記録の保存中・完了後もボタンの見た目が変わるだけで行は増やさない(`MapViewModel.Operation.statusText`参照)。
     /// 地図を最大限見せる最小の状態も兼ねるため、これより小さく畳む段階は持たない。
-    private static let recordsCompactHeight: CGFloat = 76
-    private static let locatingCompactHeight: CGFloat = 140
-    private static let errorCompactHeight: CGFloat = 235
+    private static let compactSheetHeight: CGFloat = 76
 
     /// 地図を目的地へ寄せるカメラアニメーションの長さ。再記録の吹き出しは、この移動が終わってから出す。
     private static let focusAnimationDuration: TimeInterval = 0.35
@@ -87,6 +107,9 @@ struct MapScreen: View {
     private static let cameraSettleTimeout: Duration = .seconds(3)
     /// 現在地へ地図を寄せる時の表示範囲(縦横のメートル)。
     private static let focusSpanMeters: CLLocationDistance = 1_200
+    /// 記録する区域全体へ地図を寄せるカメラアニメーションの長さ。区域全体まで引くと移動量が大きくなるため、
+    /// 現在地へ寄せる移動(`focusAnimationDuration`)より少し長くして急に感じないようにする。
+    private static let areaFocusAnimationDuration: TimeInterval = 0.5
     /// カメラの移動完了が「現在地への移動」によるものかを判定する許容距離。
     /// Mapは上側のセーフエリアをヘッダー分広げているため、カメラが現在地を中心に合わせても
     /// `context.region.center`とは百数十mずれうる(未計測)。狭い許容距離だと判定を外してタイムアウトまで
@@ -108,17 +131,62 @@ struct MapScreen: View {
         savedPlaces.first { $0.persistentModelID == selectedPlaceID }
     }
 
+    /// 塗りつぶすピースの行政区域コード。政令指定都市は区のコードで記録されるため、区のピースがそのまま埋まる。
+    private var visitedMunicipalityCodes: Set<String> {
+        Set(savedPlaces.compactMap { $0.municipality?.code })
+    }
+
+    /// ヘッダーに出す都道府県。ピンを選んでいればその都道府県、なければ現在地の都道府県。
+    /// 誘いシートからの保存中は現在地が一旦nilになるため、記録しようとしている市区町村の都道府県を見せ続ける
+    /// (`MapViewModel.municipalityBeingSaved`参照)。
+    private var headerPrefecture: PrefectureExploration? {
+        let municipality = selectedPlace?.municipality ?? viewModel.currentVisit?.municipality
+            ?? viewModel.municipalityBeingSaved
+        return summary.prefectures.first { $0.code == municipality?.prefectureCode }
+    }
+
+    /// 実際に表示するページ。都道府県が不明な間(起動直後の現在地取得中など)は市区町村ページが無いので
+    /// 全国ページを見せる。保存済みの選択は書き換えないので、都道府県が分かり次第そちらへ戻る。
+    private var progressPage: MapProgressPage {
+        headerPrefecture == nil ? .prefectures : preferredProgressPage
+    }
+
+    /// ヘッダーの切り替え操作は、表示中のページではなく保存する選択へ書き込む。
+    private var progressPageBinding: Binding<MapProgressPage> {
+        Binding(
+            get: { progressPage },
+            set: { page in
+                preferredProgressPage = page
+                focusTask?.cancel()
+                // 切り替えた先の単位(市区町村/都道府県)全体が収まる縮尺へ寄せ直す。
+                // ピンを選んでいればそのピンの区域、そうでなければ現在地の区域を基準にする(ヘッダーの表示と同じ基準)。
+                if let selectedPlace, let municipality = selectedPlace.municipality {
+                    requestAreaFocus(on: municipality, at: selectedPlace.coordinate)
+                } else if selectedPlaceID == nil, let municipality = viewModel.currentVisit?.municipality {
+                    requestCurrentAreaFocus(municipality)
+                }
+            }
+        )
+    }
+
+    /// ヘッダーが都道府県ページのときだけ、都道府県ごとの塗りの段階を返す(nilなら市区町村のパズル表示)。
+    /// summaryは47件なので、body評価のたびに組み立て直しても負担にならない。
+    private var prefectureConquestLevels: [String: PrefectureConquestLevel]? {
+        guard progressPage == .prefectures else { return nil }
+        return Dictionary(uniqueKeysWithValues: summary.prefectures.map { ($0.code, PrefectureConquestLevel($0)) })
+    }
+
+    /// ストアに読み込ませる境界。都道府県ページでは市区町村を描かないので、重い市区町村ファイルを読まない。
+    private var loadingBoundaryMode: BoundaryDisplayMode {
+        switch progressPage {
+        case .municipalities: .municipalities
+        case .prefectures: .prefecturesOnly
+        }
+    }
+
     private var isCurrentPlaceVisited: Bool {
         guard let code = viewModel.currentVisit?.municipality.code else { return false }
         return savedPlaces.contains { $0.municipality?.code == code }
-    }
-
-    /// 初めての市区町村・節目の達成は`MunicipalityFirstVisitSheet`という専用の儀式で見せる。
-    /// それ以外(単なる再訪問の更新)はシートを出さず、再記録ボタンの状態遷移とピンの吹き出しで伝える
-    /// (`MapVisitFeedbackPolicy`参照)。
-    private var celebratesInDedicatedSheet: Bool {
-        guard let result = viewModel.result else { return false }
-        return result.kind != .update
     }
 
     /// 再記録ボタンの見た目。状態としては持たず、「保存中か」(viewModel.operation)と
@@ -149,12 +217,6 @@ struct MapScreen: View {
         return !hasMunicipalityRecord && !hasExplicitRecord
     }
 
-    private var compactSheetHeight: CGFloat {
-        if viewModel.statusText != nil { return Self.locatingCompactHeight }
-        if viewModel.errorMessage != nil { return Self.errorCompactHeight }
-        return Self.recordsCompactHeight
-    }
-
     /// ピン、または現在地バッジから詳細を開いているか。どちらも「都道府県 → 詳細」までpathを積んで中段で見せる。
     private var isShowingDetailRoute: Bool {
         selectedPlace != nil || !sheetPath.isEmpty
@@ -163,12 +225,12 @@ struct MapScreen: View {
     /// 詳細表示中だけ中段を持つ。未選択時は、折りたたみ(旅の記録の1行)と全画面の2段だけにする。
     private var sheetDetents: Set<PresentationDetent> {
         isShowingDetailRoute
-            ? [.height(compactSheetHeight), .medium, .large]
-            : [.height(compactSheetHeight), .large]
+            ? [.height(Self.compactSheetHeight), .medium, .large]
+            : [.height(Self.compactSheetHeight), .large]
     }
 
     private var backgroundInteractionDetent: PresentationDetent {
-        isShowingDetailRoute ? .medium : .height(compactSheetHeight)
+        isShowingDetailRoute ? .medium : .height(Self.compactSheetHeight)
     }
 
     /// シートに隠れる分。詳細表示中は中段まで上がるので地図の半分を空ける。
@@ -176,30 +238,57 @@ struct MapScreen: View {
     private var mapBottomInset: CGFloat {
         guard isSheetPresented else { return 0 }
         if isShowingDetailRoute { return mapHeight / 2 }
-        return compactSheetHeight
+        return Self.compactSheetHeight
+    }
+
+    /// 現在地の区域の脈打ちを止めるべき状態か。変わるたびに演出側へ伝え、脈打ちの途中なら止めさせる。
+    private var pulseEnvironment: CurrentAreaPulseEnvironment {
+        CurrentAreaPulseEnvironment(
+            reduceMotion: reduceMotion,
+            isSceneActive: scenePhase == .active,
+            isSheetExpanded: isSheetExpanded,
+            hasSelectedPlace: selectedPlaceID != nil,
+            isPresentingCeremony: isMunicipalityCelebrationPresented || isPrefectureIntroPresented || isJapanIntroPresented,
+            isNationwideDisplay: progressPage == .prefectures,
+            isJapanIntroPending: !hasRecordedJapan
+        )
+    }
+
+    /// 移動中に市区町村が変わったかを自動で確かめてよい状態か(`MapViewModel.monitorMunicipalityChanges`)。
+    /// 前面にない間は位置の監視自体を止めて電池を使わない。儀式・誘いのシートを出している間も止め、
+    /// シートの文言(どの市区町村か)が表示中に別の場所へ書き換わらないようにする。閉じた後に監視が
+    /// 再開すると、最初に届いた位置でまとめて判定し直すので、その間の移動も取りこぼさない。
+    /// 現在地が一度も取れていない(許可が無い等)間は、起動時の取得・現在地ボタンに任せる。
+    /// 儀式・誘いのシートを新しく足したら、ここの条件にも加えること。
+    private var canMonitorMunicipalityChanges: Bool {
+        isActive && scenePhase == .active && hasRecordedJapan && !municipalities.isEmpty
+            && viewModel.currentLocation != nil
+            && !isMunicipalityInvitationPresented && !isMunicipalityCelebrationPresented
+            && !isPrefectureIntroPresented && !isJapanIntroPresented
     }
 
     var body: some View {
-        let municipality = selectedPlace?.municipality ?? viewModel.currentVisit?.municipality
-        let prefecture = summary.prefectures.first { $0.code == municipality?.prefectureCode }
-
-        mapLayer(prefecture: prefecture, summary: summary)
-            // 節目(25/50/75/100%)達成はただの初訪問より重みのある触覚にして、報酬の違いを体で伝える。
-            // 単なる再訪問の更新は達成ではないため、「押した操作が届いた」程度の軽い触覚に留める。
-            .sensoryFeedback(trigger: viewModel.successFeedback) { _, _ in
-                switch viewModel.result?.kind {
-                case .milestone: return .levelChange
-                case .firstVisit: return .success
-                case .update: return .impact(weight: .light)
-                case nil: return nil
-                }
+        mapLayer(prefecture: headerPrefecture, summary: summary)
+            .task { await silhouetteStore.loadJapanMapIfNeeded() }
+            // 現在地の都道府県が変わったら、その県の市区町村の地図を用意する。
+            .task(id: headerPrefecture?.code) {
+                guard let code = headerPrefecture?.code else { return }
+                await silhouetteStore.loadPrefectureMapIfNeeded(code: code)
             }
-            // 「日本」「都道府県」の記録は、市区町村の節目と同じくアプリ内で最も重い達成として扱う。
+            .task { await areaEffect.monitorLowPowerMode() }
+            // 単なる再訪問の更新は達成ではないため、「押した操作が届いた」程度の軽い触覚に留め、保存の完了で鳴らす。
+            // 初訪問・節目・都道府県の記録は、地図の区域が「光る」段階に合わせて演出側(areaEffect)が鳴らす。
+            .sensoryFeedback(trigger: viewModel.successFeedback) { _, _ in
+                viewModel.result?.kind == .update ? .impact(weight: .light) : nil
+            }
+            // 節目(25/50/75/100%)達成・都道府県の記録は.levelChange、初訪問は.successで、報酬の違いを体で伝える
+            // (種類の決め方は`MapAreaPlacementPolicy`)。
+            .sensoryFeedback(trigger: areaEffect.hapticTrigger) { _, trigger in trigger?.haptic.sensoryFeedback }
+            // 「日本」の記録は、市区町村の節目と同じくアプリ内で最も重い達成として扱う。
             // SensoryFeedbackの標準にはこれより強い「達成」の触覚が無く、Core Hapticsで独自パターンを
             // 作るほどの差ではないため、節目と同じ.levelChangeにそろえる。
             // 日本はフラグがfalse→trueになった時(記録ボタンを押した時)だけ鳴らす。
             .sensoryFeedback(.levelChange, trigger: hasRecordedJapan) { _, newValue in newValue }
-            .sensoryFeedback(.levelChange, trigger: prefectureRecordedFeedback)
             .sensoryFeedback(.error, trigger: viewModel.errorFeedback)
             .sensoryFeedback(.selection, trigger: selectedPlaceID) { _, newValue in newValue != nil }
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: viewModel.successFeedback)
@@ -225,14 +314,23 @@ struct MapScreen: View {
                 isSheetPresented = isActive && hasRecordedJapan
             }
             .onChange(of: sheetDetent) { _, detent in handleDetentChange(detent) }
-            .onChange(of: compactSheetHeight) { _, height in handleCompactHeightChange(height) }
             .onChange(of: isSheetExpanded) { _, isExpanded in handleExpansionChange(isExpanded) }
             .onChange(of: summaryInputCounts, initial: true) { _, _ in refreshSummary() }
             .onChange(of: viewModel.currentVisit?.municipality.prefectureCode) { _, _ in
                 handlePrefectureVisitChange()
             }
             .onChange(of: viewModel.currentVisit?.municipality.code) { _, _ in
-                handleMunicipalityVisitChange()
+                handleMunicipalityVisitChange(pulsesFirst: true)
+            }
+            .onChange(of: pulseEnvironment, initial: true) { _, environment in
+                areaEffect.updatePulseEnvironment(environment)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                // バックグラウンドでは演出を見届けられないので、落ち着いた見た目に戻しておく。
+                // お祝いシートは演出を待っている側(saveVisit)がこの後に出す。
+                if phase == .background {
+                    areaEffect.settleImmediately()
+                }
             }
             // 再記録の「更新済み」→吹き出し→消える、の段階を1本のタスクで進める。確認が置き換わった(idが変わった)・
             // 途中で取り消された(nilになった)時は、このタスクごとキャンセルされて古い段階を進めない。
@@ -253,48 +351,73 @@ struct MapScreen: View {
                     return
                 }
             }
-            .onChange(of: viewModel.successFeedback) { _, _ in
-                guard celebratesInDedicatedSheet else { return }
-                // 記録前の誘い(MunicipalityFirstVisitSheet)を閉じた直後に保存が完了するケースがあるため、
-                // 直前のシートのdismissアニメーションと重ならないよう一呼吸置く(重なるとUIKit側で
-                // 提示が正しく反映されないことがある)。
-                Task {
-                    try? await Task.sleep(for: .milliseconds(350))
-                    isMunicipalityCelebrationPresented = true
-                }
-            }
             .task(id: InitialLocationTrigger(isActive: isActive, municipalityCount: municipalities.count)) {
                 guard isActive, !municipalities.isEmpty, viewModel.currentVisit == nil else { return }
                 // シート提示アニメーションと、位置情報が未確定の場合に走るOS標準の許可ダイアログが
                 // 同時に出ると見た目が競合するため、他の儀式シート遷移と同じ350msだけ間を置く。
                 try? await Task.sleep(for: .milliseconds(350))
-                await viewModel.refresh(municipalities: municipalities)
+                var hasFocusedOnLocation = false
+                await viewModel.refresh(municipalities: municipalities) { location in
+                    // 住所の確認(通信で数秒かかることがある)を待たず、座標が分かった時点で地図を寄せる。
+                    // 市区町村が分かるまで地図が動かないと、起動直後に長く待たされているように見えるため。
+                    hasFocusedOnLocation = true
+                    // 「日本」の儀式は、現在地へ地図を動かし終えてから出す。先に地図で自分の居場所を見せてから
+                    // 迎えることで、「今いるこの場所から旅が始まる」ことが伝わるようにする。
+                    // 位置の取得(許可ダイアログへの応答を含む)を待ってから出すので、ダイアログとも競合しない。
+                    // 住所の確認より先に儀式が出ることがあるが、市区町村が分かった後の誘いは
+                    // `performAfterJapanIntro`が儀式の後まで預かる。
+                    waitForMapToSettleBeforeJapanIntro(at: location.coordinate)
+                    focusMap(on: location.coordinate)
+                }
                 // idが変わって走り直す場合は、新しい方の実行に儀式の提示を任せる。
                 guard !Task.isCancelled else { return }
-                guard let location = viewModel.currentLocation else {
+                if !hasFocusedOnLocation {
                     // 許可されなかった・取得に失敗した場合も、儀式を出さないと常駐シートが出ないまま残るため提示する。
                     presentJapanIntroIfNeeded()
-                    return
                 }
-                // 「日本」の儀式は、現在地へ地図を動かし終えてから出す。先に地図で自分の居場所を見せてから
-                // 迎えることで、「今いるこの場所から旅が始まる」ことが伝わるようにする。
-                // 位置の取得(許可ダイアログへの応答を含む)を待ってから出すので、ダイアログとも競合しない。
-                waitForMapToSettleBeforeJapanIntro(at: location.coordinate)
-                focusMap(on: location.coordinate)
             }
-            .onDisappear { actionTask?.cancel() }
+            .task(id: canMonitorMunicipalityChanges) {
+                guard canMonitorMunicipalityChanges else { return }
+                await viewModel.monitorMunicipalityChanges(municipalities: municipalities)
+            }
+            .task(id: viewModel.currentVisit?.municipality.code) {
+                guard let municipality = viewModel.currentVisit?.municipality else { return }
+                // どちらの表示に切り替えてもすぐ寄せられるよう、市区町村と都道府県の両方を先に用意しておく。
+                await puzzleStore.prepareFocusRect(forMunicipality: municipality.code, prefectureCode: municipality.prefectureCode)
+                await puzzleStore.prepareFocusRect(forPrefecture: municipality.prefectureCode)
+            }
+            .onDisappear {
+                focusTask?.cancel()
+                actionTask?.cancel()
+                areaEffect.settleImmediately()
+            }
     }
 
     private func mapLayer(prefecture: PrefectureExploration?, summary: ExplorationSummary) -> some View {
         Map(position: $cameraPosition, selection: $selectedPlaceID) {
+            // ピースは地面に敷くものなので、ピンや現在地より先(下)に置く。
+            MunicipalityPuzzleLayer(
+                municipalityPieces: puzzleStore.municipalityPieces,
+                prefectureBorders: puzzleStore.prefectureBorders,
+                prefectureAreas: puzzleStore.prefectureAreas,
+                showsUnvisitedMunicipalities: puzzleStore.showsUnvisitedMunicipalities,
+                visitedCodes: visitedMunicipalityCodes,
+                currentCode: viewModel.currentVisit?.municipality.code,
+                prefectureConquestLevels: prefectureConquestLevels,
+                emphasis: areaEffect.emphasis,
+                lineWidths: boundaryLineWidths
+            )
             UserAnnotation()
-            ForEach(savedPlaces) { place in
-                Marker(place.displayName, systemImage: "checkmark", coordinate: place.coordinate)
-                    .tint(selectedPlaceID == place.persistentModelID ? .teal : .orange)
-                    .tag(place.persistentModelID)
+            if showsPlacePins {
+                ForEach(savedPlaces) { place in
+                    Marker(place.displayName, systemImage: "checkmark", coordinate: place.coordinate)
+                        .tint(selectedPlaceID == place.persistentModelID ? .teal : .orange)
+                        .tag(place.persistentModelID)
+                }
             }
             // Markerとは別に、再記録した場所の上に吹き出しを重ねる。Marker自体の見た目は変えない。
             // 選択用のtagを付けないので、地図の選択(selectedPlaceID)には関わらない。
+            // 記録した直後の手応えなので、ピンを隠していても出す。
             if let confirmation = rerecordConfirmation, confirmation.stage != .updated,
                let place = savedPlaces.first(where: { $0.persistentModelID == confirmation.placeID }) {
                 Annotation(coordinate: place.coordinate, anchor: .bottom) {
@@ -313,13 +436,39 @@ struct MapScreen: View {
             MapCompass()
             MapScaleView()
         }
+        // 動かしている最中に市区町村ポリゴンを読み込み直すと重くなるため、カメラが止まった時だけ表示範囲を伝える。
         .onMapCameraChange(frequency: .onEnd) { context in
             handleCameraSettled(at: context.region.center)
+            visibleMapRect = context.rect
+            MapRegionMemory.save(context.region)
+            // ヘッダー・シートの裏にも地図は映っているので、ビュー全体を基準に読み込む(`MapFullFrameRect`参照)。
+            let fullFrameRect = MapFullFrameRect.rect(
+                visibleRect: context.rect, mapHeight: mapHeight, topInset: headerOverlayHeight, bottomInset: mapBottomInset
+            )
+            puzzleStore.showRegion(MKCoordinateRegion(fullFrameRect))
+            areaEffect.cameraDidSettle(visibleRect: context.rect)
+            handleMapScaleChange(visibleRect: context.rect)
+        }
+        // 地図を動かしている間は脈打ちを止める。操作中は毎フレーム呼ばれるため、ここでは脈打ち中かを見るだけにし、
+        // 止めるときの1回しか状態を書き換えない(書き換えるたびに画面全体が描き直されるため)。
+        .onMapCameraChange(frequency: .continuous) { _ in
+            if areaEffect.isPulsing {
+                areaEffect.stopPulse()
+            }
+        }
+        .onChange(of: loadingBoundaryMode, initial: true) { _, mode in
+            puzzleStore.setDisplayMode(mode)
         }
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.height
         } action: { height in
             mapHeight = height
+        }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            mapWidth = width
+            areaEffect.updateMapWidth(width)
         }
         // シートに隠れる分をセーフエリアから除き、法的表示とカメラの中心をシートの上に収める。
         .safeAreaPadding(.bottom, mapBottomInset)
@@ -332,25 +481,18 @@ struct MapScreen: View {
                 MapProgressHeader(
                     prefecture: prefecture,
                     summary: summary,
+                    prefectureMap: prefecture.flatMap { silhouetteStore.prefectureMaps[$0.code] },
+                    japanMap: silhouetteStore.japanMap,
+                    page: progressPageBinding,
                     showPrefecture: showPrefectureProgress,
                     showNationwide: showNationwideProgress
                 )
                     .frame(maxWidth: .infinity, alignment: .leading)
-                // 現在地バッジと現在地へ戻るボタンを同じ行に同居させ、ボタンの位置をヘッダー直下のまま動かさない。
-                ZStack(alignment: .trailing) {
-                    if let currentLocationName {
-                        MapCurrentLocationBadge(name: currentLocationName, onTap: handleCurrentLocationBadgeTap)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                    }
-                    Button("現在地へ戻る", systemImage: "location.fill") {
-                        selectedPlaceID = nil
-                        refreshLocation()
-                    }
-                    .labelStyle(.iconOnly)
-                    .font(.title3)
-                    .frame(width: 44, height: 44)
-                    .glassEffect(.regular, in: Circle())
-                    .disabled(viewModel.isBusy)
+                if let currentLocationName {
+                    MapCurrentLocationBadge(
+                        name: currentLocationName, isRecorded: isCurrentPlaceVisited, onTap: handleCurrentLocationBadgeTap
+                    )
+                    .frame(maxWidth: .infinity, alignment: .center)
                 }
             }
             .padding(.horizontal, 16)
@@ -362,29 +504,74 @@ struct MapScreen: View {
                 headerOverlayHeight = height
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            VStack(spacing: 12) {
+                Button("現在地へ戻る", systemImage: "location.fill") {
+                    selectedPlaceID = nil
+                    refreshLocation()
+                }
+                .labelStyle(.iconOnly)
+                .font(.title2)
+                .frame(width: 56, height: 56)
+                .contentShape(Circle())
+                .glassEffect(.regular, in: Circle())
+                .disabled(viewModel.isBusy)
+
+                MapPinVisibilityButton(showsPins: $showsPlacePins)
+            }
+            .padding(.trailing, 16)
+            .padding(.bottom, mapBottomInset + 16)
+        }
     }
 
     private func handleSelectionChange() {
         if let selectedPlace {
             // ピンを選ぶと地図がそのピンへ動いて再記録の場所から離れるため、吹き出しは待たずに消す。
             rerecordConfirmation = nil
-            focusMap(on: selectedPlace.coordinate)
+            // ピンの地点だけでなく、その区域(都道府県の表示なら都道府県)全体が収まる縮尺で見せる。
+            if let municipality = selectedPlace.municipality {
+                requestAreaFocus(on: municipality, at: selectedPlace.coordinate)
+            } else {
+                focusTask?.cancel()
+                focusMap(on: selectedPlace.coordinate)
+            }
             // 展開済みかどうかに関わらず、ここでpathを確定させる(展開側では計算し直さない)。
             sheetPath = expandedRoutes(for: selectedPlace)
             sheetDetent = .medium
         } else if isSheetExpanded {
             // ピン以外の場所をタップして選択が外れたら、折りたたんで現在地カードへ戻す。
-            sheetDetent = .height(compactSheetHeight)
+            sheetDetent = .height(Self.compactSheetHeight)
         }
     }
 
     /// ヘッダー下の現在地バッジをタップしたら、選択中のピンを解除して現在地自身の詳細を見せる。
     private func handleCurrentLocationBadgeTap() {
         guard let municipality = viewModel.currentVisit?.municipality else { return }
-        if let location = viewModel.currentLocation {
-            focusMap(on: location.coordinate)
-        }
         showMunicipalityDetail(municipality, detent: .medium)
+        requestCurrentAreaFocus(municipality)
+    }
+
+    private func requestCurrentAreaFocus(_ municipality: Municipality) {
+        guard let location = viewModel.currentLocation else { return }
+        requestAreaFocus(on: municipality, at: location.coordinate)
+    }
+
+    /// 区域全体の範囲を(まだ無ければ)読み込んでから、その区域へ地図を寄せる。
+    /// 読み込みを待つ間に表示の切り替えやピンの選択が変わったら、古い依頼なので寄せない。
+    private func requestAreaFocus(on municipality: Municipality, at coordinate: CLLocationCoordinate2D) {
+        focusTask?.cancel()
+        let requestedPage = progressPage
+        let requestedSelection = selectedPlaceID
+        focusTask = Task {
+            switch requestedPage {
+            case .municipalities:
+                await puzzleStore.prepareFocusRect(forMunicipality: municipality.code, prefectureCode: municipality.prefectureCode)
+            case .prefectures:
+                await puzzleStore.prepareFocusRect(forPrefecture: municipality.prefectureCode)
+            }
+            guard !Task.isCancelled, requestedPage == progressPage, requestedSelection == selectedPlaceID else { return }
+            focusMap(onAreaOf: municipality, at: coordinate)
+        }
     }
 
     /// ヘッダーの市区町村ページをタップしたら、表示中の都道府県の市区町村踏破率を開く。
@@ -421,13 +608,6 @@ struct MapScreen: View {
     private func handleDetentChange(_ detent: PresentationDetent) {
         let expandedDetents: [PresentationDetent] = [.medium, .large]
         isSheetExpanded = expandedDetents.contains(detent)
-    }
-
-    /// 折りたたみ中に内容が変わって高さが変わったら、選択中のdetentも追従させる。
-    private func handleCompactHeightChange(_ height: CGFloat) {
-        if !isSheetExpanded {
-            sheetDetent = .height(height)
-        }
     }
 
     /// pathは常に呼び出し側(ピン選択・現在地バッジ・旅の記録リンク)が展開前に確定させるので、
@@ -475,6 +655,7 @@ struct MapScreen: View {
                     }
                 }
         }
+        .environment(silhouetteStore)
     }
 
     private var compactSheetContent: some View {
@@ -577,11 +758,17 @@ struct MapScreen: View {
 
     private func refreshLocation() {
         guard !viewModel.isBusy else { return }
+        focusTask?.cancel()
         // 取り直すと現在地そのものが変わりうるため、前の場所への「更新済み」を残さない。
         rerecordConfirmation = nil
         actionTask = Task {
             await viewModel.refresh(municipalities: municipalities)
-            if let location = viewModel.currentLocation, selectedPlaceID == nil {
+            guard let location = viewModel.currentLocation, selectedPlaceID == nil else { return }
+            // 現在地の点だけでなく、今いる区域(都道府県の表示なら都道府県)全体が収まる縮尺で見せる。
+            // 自分がどの区域のどのあたりにいるかが一目で分かるようにするため。
+            if let municipality = viewModel.currentVisit?.municipality {
+                requestAreaFocus(on: municipality, at: location.coordinate)
+            } else {
                 focusMap(on: location.coordinate)
             }
         }
@@ -617,11 +804,24 @@ struct MapScreen: View {
     /// (再記録のsaveでは保存前の値を残すが、失敗・中断した場合はnilになる)ため、そのnilへの
     /// 変化でも`municipality.code`のonChangeは発火する。nilの間は「未訪問」と誤判定してしまう
     /// (isCurrentPlaceVisitedがfalseを返す)ため、currentVisitがある時だけ動くよう明示的に絞る。
-    private func handleMunicipalityVisitChange() {
-        guard !isSheetExpanded, selectedPlace == nil, viewModel.currentVisit != nil,
+    /// - Parameter pulsesFirst: 現在地の区域が変わったとき(onChange)だけtrue。未訪問の区域に入ったことを
+    ///   先に地図の縁取りの脈打ちで見せ、終わってから誘う。脈打ちを見送った場合はすぐに戻るので、従来どおりすぐに誘う。
+    ///   シートを折りたたんだ時の回収(handleExpansionChange)では脈打たず、すぐに誘う。
+    private func handleMunicipalityVisitChange(pulsesFirst: Bool = false) {
+        guard !isSheetExpanded, selectedPlace == nil, let code = viewModel.currentVisit?.municipality.code,
               !isCurrentPlaceVisited, !isFirstPrefectureVisit
         else { return }
-        performAfterJapanIntro { isMunicipalityInvitationPresented = true }
+        guard pulsesFirst else {
+            performAfterJapanIntro { isMunicipalityInvitationPresented = true }
+            return
+        }
+        Task {
+            await areaEffect.playArrivalPulse(code: code) { puzzleStore.boundingRect(forMunicipality: code) }
+            // 脈打ちの間に別の区域へ移っていれば、そちらの変化の処理に任せる。シートを広げた等で
+            // 誘えなくなっていれば、改めて呼び直した先の条件で見送る(折りたたんだ時に回収される)。
+            guard viewModel.currentVisit?.municipality.code == code else { return }
+            handleMunicipalityVisitChange()
+        }
     }
 
     /// 「日本を記録する」儀式の初回提示。初回の現在地取得(許可ダイアログへの応答を含む)が終わった後にだけ
@@ -648,6 +848,35 @@ struct MapScreen: View {
             japanIntroCameraTarget = nil
             presentJapanIntroIfNeeded()
         }
+    }
+
+    /// カメラが止まったときに、縮尺に合わせて線の太さとヘッダーのページを決め直す。
+    private func handleMapScaleChange(visibleRect: MKMapRect) {
+        guard let scale = BoundaryMapScale(visibleRect: visibleRect, mapWidthPoints: mapWidth) else { return }
+        let lineWidths = BoundaryLineWidths(scale: scale)
+        // 同じ太さを書き戻しても地図全体の再評価が走るため、段階が変わったときだけ書き換える。
+        if lineWidths != boundaryLineWidths {
+            boundaryLineWidths = lineWidths
+        }
+        switchToMunicipalityPageIfZoomedIn(scale: scale)
+    }
+
+    /// 都道府県ページのままユーザーが市区町村の縮尺まで拡大したら、市区町村ページ(パズル表示)に切り替える。
+    ///
+    /// アプリが動かしたカメラ(現在地・区域へ寄せる移動)では切り替えない。起動直後の現在地への寄せ(1,200m四方)で
+    /// 毎回市区町村ページになり、ユーザーが選んだ都道府県ページが保てなくなるため。
+    /// `positionedByUser`は、ユーザーの操作でカメラが動いたときにMapが`cameraPosition`へ書き戻す値。
+    /// ヘッダーの切り替え操作(`progressPageBinding`)と違ってカメラは寄せ直さない。ユーザーが自分で合わせた縮尺を崩さないため。
+    private func switchToMunicipalityPageIfZoomedIn(scale: BoundaryMapScale) {
+        guard cameraPosition.positionedByUser,
+              progressPage == .prefectures,
+              // 都道府県が分からない間は市区町村ページを出せない(`progressPage`参照)。
+              headerPrefecture != nil,
+              MapProgressPageZoomPolicy.shouldSwitchToMunicipalities(visibleWidthMeters: scale.visibleWidthMeters)
+        else { return }
+        // 待っている区域への寄せ(都道府県全体へ引く移動)が後から走ると、ユーザーが寄せた縮尺を崩すため取り消す。
+        focusTask?.cancel()
+        preferredProgressPage = .municipalities
     }
 
     private func handleCameraSettled(at center: CLLocationCoordinate2D) {
@@ -703,41 +932,152 @@ struct MapScreen: View {
         isPrefectureIntroPresented = false
         guard let municipality = viewModel.currentVisit?.municipality else { return }
         let code = municipality.prefectureCode
+        var placementPlan: MapAreaPlacementPlan?
         if !visitedPrefectures.contains(where: { $0.code == code }) {
+            // 記録前後の段階は、保存がまだ反映されていない今の集計(summary)から求める。
+            let request = prefecturePlacementRequest(for: municipality)
+            // 保存で@Queryが反映されて先に塗りが変わらないよう、演出が始まるまで記録前の見た目に保つ。
+            areaEffect.beginRecording(recordingEmphasis(for: municipality))
             modelContext.insert(VisitedPrefecture(code: code, name: municipality.prefectureName))
             do {
                 try modelContext.save()
-                // 保存できた時だけ鳴らす。失敗して巻き戻した記録を「記録できた」と体で伝えないため。
-                prefectureRecordedFeedback += 1
+                // 保存できた時だけ演出と触覚を出す。失敗して巻き戻した記録を「記録できた」と体で伝えないため。
+                // 触覚は儀式シートの中ではなく演出側で鳴らす(シートは記録と同時に閉じるため、中に付けると
+                // 閉じる途中で取り除かれて鳴らないことがある)。
+                placementPlan = MapAreaPlacementPolicy().plan(for: request)
             } catch {
                 modelContext.rollback()
+                areaEffect.cancelRecording()
             }
         }
-        guard !isCurrentPlaceVisited else { return }
         Task {
-            // 直前のシートのdismissアニメーションと重ならないよう、一呼吸置いてから次の儀式に繋げる。
-            try? await Task.sleep(for: .milliseconds(350))
+            if let placementPlan {
+                // 都道府県の表示では、塗りがはまるのを見届けてから次の誘いに繋げる。演出を省く場合も、
+                // 直前のシートのdismissアニメーションと重ならない一呼吸(350ms)を置いてから戻ってくる。
+                await areaEffect.play(placementPlan, cameraArrival: nil)
+            } else {
+                // 直前のシートのdismissアニメーションと重ならないよう、一呼吸置いてから次の儀式に繋げる。
+                try? await Task.sleep(for: .milliseconds(350))
+            }
+            guard !isCurrentPlaceVisited else { return }
             isMunicipalityInvitationPresented = true
         }
     }
 
     private func saveVisit(trigger: MapVisitSaveTrigger) {
         guard !viewModel.isBusy else { return }
+        // 誘いシートからの記録は、保存の完了(位置の取得に数秒かかる)を待たず、押した時点で記録する区域全体へ
+        // 寄せ始める。完了した瞬間に区域全体が見えていて、そこでピースがはまる様子を見届けられるようにするため。
+        // 再記録は同じ場所で行うことが多く区域を見せ直す意味が薄いので、従来どおり完了後に現在地へ寄せる。
+        let recordingMunicipality = trigger == .firstVisitInvitation ? viewModel.currentVisit?.municipality : nil
+        var focusArrival: ContinuousClock.Instant?
+        if let recordingMunicipality {
+            // 押してから演出が始まるまでは「記録中」として、区域を記録前の見た目に保つ。
+            areaEffect.beginRecording(recordingEmphasis(for: recordingMunicipality))
+            if let location = viewModel.currentLocation, selectedPlaceID == nil {
+                focusArrival = focusMap(onAreaOf: recordingMunicipality, at: location.coordinate)
+            }
+        }
+        let initialCameraArrival = focusArrival
         actionTask = Task {
+            var cameraArrival = initialCameraArrival
             let result = await viewModel.save(municipalities: municipalities, context: modelContext, trigger: trigger)
             // saveの完了(operationが.idleに戻る)と同じMainActorの処理の続きで判定する。onChangeで受けると
             // その間に描画が1回挟まり、再記録ボタンが一瞬「再記録」に戻ってから「更新済み」になるため。
+            // 演出の材料(記録前後の都道府県の段階)も、summaryが保存を反映する前のここで集める。
+            var request: MapAreaPlacementRequest?
             if let result {
+                request = placementRequest(for: result)
                 handleSaveCompletion(result, trigger: trigger)
             }
             if let location = viewModel.currentLocation, selectedPlaceID == nil {
-                focusMap(on: location.coordinate)
+                if let recordingMunicipality {
+                    // 押した時と別の区域で保存された(移動しながら押した等)ときだけ、保存した区域へ寄せ直す。
+                    // 保存に失敗した場合は、押した時に寄せた区域(現在地を含む)のまま動かさない。
+                    if let savedMunicipality = viewModel.currentVisit?.municipality,
+                       savedMunicipality.code != recordingMunicipality.code {
+                        cameraArrival = focusMap(onAreaOf: savedMunicipality, at: location.coordinate)
+                    }
+                } else {
+                    cameraArrival = focusMap(on: location.coordinate)
+                }
             }
+            guard let request, let plan = MapAreaPlacementPolicy().plan(for: request) else {
+                // 更新・保存失敗・中断では演出を作らない(記録中の見た目も取り除く)。
+                areaEffect.cancelRecording()
+                return
+            }
+            // 演出が終わってからお祝いシートを出す。演出を省く場合も、演出側が直前のシート(誘い)の
+            // dismissアニメーションと重ならない一呼吸(350ms)を置いてから戻ってくる(重なるとUIKit側で
+            // 提示が正しく反映されないことがある)。演出が途中で取り消されても戻ってくるので、シートは必ず出る。
+            await areaEffect.play(plan, cameraArrival: cameraArrival)
+            isMunicipalityCelebrationPresented = true
         }
     }
 
+    /// 記録ボタンを押してから演出が始まるまでの見た目。
+    private func recordingEmphasis(for municipality: Municipality) -> MunicipalityEmphasis {
+        MapAreaPlacementPolicy().recordingEmphasis(
+            municipalityCode: municipality.code,
+            prefectureCode: municipality.prefectureCode,
+            isPrefectureDisplay: progressPage == .prefectures,
+            prefectureLevel: prefectureExploration(code: municipality.prefectureCode).map { PrefectureConquestLevel($0) }
+                ?? .unvisited
+        )
+    }
+
+    /// 市区町村を保存した直後の画面の状態から、演出を決めるための材料を集める。
+    /// 記録前後の都道府県の段階は、保存がまだ反映されていない集計(summary)に今回の記録を足して求めるため、
+    /// saveの完了と同じMainActorの処理の続きで呼ぶこと(summaryの更新はonChange経由で、描画を1回挟んだ後になる)。
+    private func placementRequest(for result: MapVisitResult) -> MapAreaPlacementRequest? {
+        guard let municipality = viewModel.currentVisit?.municipality else { return nil }
+        let prefecture = prefectureExploration(code: municipality.prefectureCode)
+        let previousLevel = prefecture.map { PrefectureConquestLevel($0) } ?? .unvisited
+        let level = prefecture.map { PrefectureConquestLevel.afterRecording(municipalityCode: municipality.code, in: $0) }
+            ?? previousLevel
+        return placementRequest(
+            record: .municipality(result.kind), municipality: municipality, previousLevel: previousLevel, level: level
+        )
+    }
+
+    /// 都道府県単独の記録を保存する直前の画面の状態から、演出を決めるための材料を集める。
+    private func prefecturePlacementRequest(for municipality: Municipality) -> MapAreaPlacementRequest {
+        let prefecture = prefectureExploration(code: municipality.prefectureCode)
+        let previousLevel = prefecture.map { PrefectureConquestLevel($0) } ?? .unvisited
+        let level = prefecture.map { PrefectureConquestLevel.afterRecordingPrefecture($0) } ?? .started
+        return placementRequest(record: .prefecture, municipality: municipality, previousLevel: previousLevel, level: level)
+    }
+
+    private func placementRequest(
+        record: MapAreaRecord,
+        municipality: Municipality,
+        previousLevel: PrefectureConquestLevel,
+        level: PrefectureConquestLevel
+    ) -> MapAreaPlacementRequest {
+        let isPrefectureDisplay = progressPage == .prefectures
+        let loadedRect = isPrefectureDisplay
+            ? puzzleStore.boundingRect(forPrefecture: municipality.prefectureCode)
+            : puzzleStore.boundingRect(forMunicipality: municipality.code)
+        return MapAreaPlacementRequest(
+            record: record,
+            municipalityCode: municipality.code,
+            prefectureCode: municipality.prefectureCode,
+            isPrefectureDisplay: isPrefectureDisplay,
+            previousPrefectureLevel: previousLevel,
+            prefectureLevel: level,
+            reduceMotion: reduceMotion,
+            isSheetExpanded: isSheetExpanded,
+            hasSelectedPlace: selectedPlaceID != nil,
+            isBoundaryLoaded: loadedRect != nil
+        )
+    }
+
+    private func prefectureExploration(code: String) -> PrefectureExploration? {
+        summary.prefectures.first { $0.code == code }
+    }
+
     /// 保存完了時の見せ方を、完了した時点のシート・ピン選択の状態で決める。初訪問・節目(.none)は
-    /// `successFeedback`のonChangeが儀式シートを出すので、ここでは何もしない。
+    /// `saveVisit`が地図の演出を待ってから儀式シートを出すので、ここでは何もしない。
     private func handleSaveCompletion(_ result: MapVisitResult, trigger: MapVisitSaveTrigger) {
         let feedback = MapVisitFeedbackPolicy().updateFeedback(
             for: result.kind,
@@ -768,12 +1108,52 @@ struct MapScreen: View {
         AccessibilityNotification.Announcement("\(result.municipalityName)の訪問記録を更新しました").post()
     }
 
-    private func focusMap(on coordinate: CLLocationCoordinate2D) {
+    /// 現在地などの地点へ地図を寄せ、移動が終わる予定の時刻を返す。
+    @discardableResult
+    private func focusMap(on coordinate: CLLocationCoordinate2D) -> ContinuousClock.Instant {
         withAnimation(reduceMotion ? nil : .easeInOut(duration: Self.focusAnimationDuration)) {
             cameraPosition = .region(MKCoordinateRegion(
                 center: coordinate, latitudinalMeters: Self.focusSpanMeters, longitudinalMeters: Self.focusSpanMeters
             ))
         }
+        return noteCameraMove(duration: Self.focusAnimationDuration)
+    }
+
+    /// 区域全体(都道府県の表示なら都道府県全体)へ地図を寄せ、移動が終わる予定の時刻を返す。
+    /// 記録する時・現在地ボタン・ピンの選択・表示の切り替えで使う。
+    /// 区域の形がまだ読み込まれていなければ(今の表示範囲から遠い等)、従来どおり現在地を中心に寄せる。
+    @discardableResult
+    private func focusMap(
+        onAreaOf municipality: Municipality, at coordinate: CLLocationCoordinate2D
+    ) -> ContinuousClock.Instant {
+        let areaRect = switch progressPage {
+        case .municipalities: puzzleStore.focusRect(forMunicipality: municipality.code, containing: coordinate)
+        case .prefectures: puzzleStore.focusRect(forPrefecture: municipality.prefectureCode, containing: coordinate)
+        }
+        // 縮尺の変化が大きいほど長く動かす。一定の長さだと県全体まで引く移動が一瞬で終わり、
+        // 「パッと切り替わった」ように見えるため(`MapCameraMoveDuration`参照)。
+        let duration = areaRect.map { MapCameraMoveDuration.duration(from: visibleMapRect, to: $0) }
+            ?? Self.areaFocusAnimationDuration
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: duration)) {
+            if let areaRect {
+                // `.rect`も`.region`と同じく、safeAreaPaddingで空けた下側(シートの分)を避けて矩形を収める
+                // (iOS 26のシミュレータで、下に300pt空けると矩形が残りの範囲の中央に収まることを実測)。
+                // そのため矩形の下側を広げる補正はしていない。
+                cameraPosition = .rect(areaRect)
+            } else {
+                cameraPosition = .region(MKCoordinateRegion(
+                    center: coordinate, latitudinalMeters: Self.focusSpanMeters, longitudinalMeters: Self.focusSpanMeters
+                ))
+            }
+        }
+        return noteCameraMove(duration: duration)
+    }
+
+    /// アプリが地図を動かし始めたことを演出側に伝える。移動が終わるまで脈打ちを始めないようにするため。
+    private func noteCameraMove(duration: TimeInterval) -> ContinuousClock.Instant {
+        let arrival = ContinuousClock.now + (reduceMotion ? .zero : .seconds(duration))
+        areaEffect.noteCameraMove(arrivingAt: arrival)
+        return arrival
     }
 }
 

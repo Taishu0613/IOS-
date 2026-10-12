@@ -1,0 +1,24 @@
+{
+  "description": "地方区分の定義（唯一の管理場所）。国土地理院「日本の典型地形」の地域別リストに準拠。都道府県コードは JIS X 0401。",
+  "source": {
+    "name": "国土地理院 日本の典型地形 地域別リスト",
+    "urls": [
+      "https://www.gsi.go.jp/kikaku/tenkei_kanto.html",
+      "https://www.gsi.go.jp/kikaku/tenkei_hokuriku.html",
+      "https://www.gsi.go.jp/kikaku/tenkei_chubu.html"
+    ],
+    "checkedAt": "2026-09-23"
+  },
+  "regions": [
+    { "code": "01", "name": "北海道", "nameEn": "Hokkaido", "prefectureCodes": ["01"] },
+    { "code": "02", "name": "東北", "nameEn": "Tohoku", "prefectureCodes": ["02", "03", "04", "05", "06", "07"] },
+    { "code": "03", "name": "関東", "nameEn": "Kanto", "prefectureCodes": ["08", "09", "10", "11", "12", "13", "14", "19", "20"] },
+    { "code": "04", "name": "北陸", "nameEn": "Hokuriku", "prefectureCodes": ["15", "16", "17", "18"] },
+    { "code": "05", "name": "中部", "nameEn": "Chubu", "prefectureCodes": ["21", "22", "23", "24"] },
+    { "code": "06", "name": "近畿", "nameEn": "Kinki", "prefectureCodes": ["25", "26", "27", "28", "29", "30"] },
+    { "code": "07", "name": "中国", "nameEn": "Chugoku", "prefectureCodes": ["31", "32", "33", "34", "35"] },
+    { "code": "08", "name": "四国", "nameEn": "Shikoku", "prefectureCodes": ["36", "37", "38", "39"] },
+    { "code": "09", "name": "九州", "nameEn": "Kyushu", "prefectureCodes": ["40", "41", "42", "43", "44", "45", "46"] },
+    { "code": "10", "name": "沖縄", "nameEn": "Okinawa", "prefectureCodes": ["47"] }
+  ]
+}

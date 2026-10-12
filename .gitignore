@@ -1,0 +1,14 @@
+# macOS Finder が各フォルダに作るメタデータ。内容に意味がなく、差分と衝突の原因になるため追跡しない。
+.DS_Store
+
+# 行政区域データ。原本・中間データ・生成物は大容量かつ再生成できるため追跡しない。
+# 追跡するのは仕様書 README.md と生成ツール scripts/（node_modules を除く）のみ。
+/BoundaryData/*
+!/BoundaryData/README.md
+!/BoundaryData/scripts/
+/BoundaryData/scripts/**/node_modules/
+/BoundaryData/scripts/**/build.out
+
+# 旧配置。境界データとツールは /BoundaryData に集約したため、ここに置かれても追跡しない
+# （原本 GeoJSON は 500MB 超で GitHub の上限 100MB を超える）。
+/docs/BoundaryData/

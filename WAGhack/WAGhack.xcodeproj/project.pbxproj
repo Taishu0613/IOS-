@@ -8,6 +8,11 @@
 
 /* Begin PBXBuildFile section */
 		C0DEC0DE0000000000000001 /* LocalGovernmentCodeJapan_Knowledge.csv in Resources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE0000000000000002 /* LocalGovernmentCodeJapan_Knowledge.csv */; };
+		C0DEC0DE0000000000000003 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE0000000000000004 /* manifest.json */; };
+		C0DEC0DE0000000000000005 /* attribution.txt in Resources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE0000000000000006 /* attribution.txt */; };
+		C0DEC0DE0000000000000007 /* municipalities in Resources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE0000000000000008 /* municipalities */; };
+		C0DEC0DE0000000000000009 /* prefectures in Resources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE0000000000000010 /* prefectures */; };
+		C0DEC0DE0000000000000011 /* prefectureLines in Resources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE0000000000000012 /* prefectureLines */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -32,6 +37,11 @@
 		94AD80A8303A88740016FA7C /* WAGhackTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WAGhackTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		94AD80B2303A88740016FA7C /* WAGhackUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WAGhackUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0DEC0DE0000000000000002 /* LocalGovernmentCodeJapan_Knowledge.csv */ = {isa = PBXFileReference; lastKnownFileType = text; name = LocalGovernmentCodeJapan_Knowledge.csv; path = ../LocalGovernmentCodeJapan_Knowledge.csv; sourceTree = "<group>"; };
+		C0DEC0DE0000000000000004 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../BoundaryData/generated/BoundaryData/manifest.json; sourceTree = "<group>"; };
+		C0DEC0DE0000000000000006 /* attribution.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = attribution.txt; path = ../BoundaryData/generated/BoundaryData/attribution.txt; sourceTree = "<group>"; };
+		C0DEC0DE0000000000000008 /* municipalities */ = {isa = PBXFileReference; lastKnownFileType = folder; name = municipalities; path = ../BoundaryData/generated/BoundaryData/municipalities; sourceTree = "<group>"; };
+		C0DEC0DE0000000000000010 /* prefectures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = prefectures; path = ../BoundaryData/generated/BoundaryData/prefectures; sourceTree = "<group>"; };
+		C0DEC0DE0000000000000012 /* prefectureLines */ = {isa = PBXFileReference; lastKnownFileType = folder; name = prefectureLines; path = ../BoundaryData/generated/BoundaryData/prefectureLines; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -81,6 +91,11 @@
 			isa = PBXGroup;
 			children = (
 				C0DEC0DE0000000000000002 /* LocalGovernmentCodeJapan_Knowledge.csv */,
+				C0DEC0DE0000000000000004 /* manifest.json */,
+				C0DEC0DE0000000000000006 /* attribution.txt */,
+				C0DEC0DE0000000000000008 /* municipalities */,
+				C0DEC0DE0000000000000010 /* prefectures */,
+				C0DEC0DE0000000000000012 /* prefectureLines */,
 				94AD809B303A88720016FA7C /* WAGhack */,
 				94AD80AB303A88740016FA7C /* WAGhackTests */,
 				94AD80B5303A88740016FA7C /* WAGhackUITests */,
@@ -219,6 +234,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				C0DEC0DE0000000000000001 /* LocalGovernmentCodeJapan_Knowledge.csv in Resources */,
+				C0DEC0DE0000000000000003 /* manifest.json in Resources */,
+				C0DEC0DE0000000000000005 /* attribution.txt in Resources */,
+				C0DEC0DE0000000000000007 /* municipalities in Resources */,
+				C0DEC0DE0000000000000009 /* prefectures in Resources */,
+				C0DEC0DE0000000000000011 /* prefectureLines in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -403,7 +423,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = X7PH6497P8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -419,7 +439,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.1;
+				MARKETING_VERSION = 1.3.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wakasugi.yorimichi;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -438,7 +458,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = X7PH6497P8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -454,7 +474,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.1;
+				MARKETING_VERSION = 1.3.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wakasugi.yorimichi;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;

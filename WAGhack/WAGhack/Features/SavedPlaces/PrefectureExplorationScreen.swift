@@ -10,6 +10,8 @@ struct PrefectureExplorationScreen: View {
     @Query private var savedPlaces: [SavedPlace]
     @Query private var visitedPrefectures: [VisitedPrefecture]
     @State private var store = SavedPlacesStore()
+    /// マップのシート内でだけ渡される。プレビューなど渡されない場所では地図を出さない。
+    @Environment(SilhouetteMapStore.self) private var silhouetteStore: SilhouetteMapStore?
 
     var body: some View {
         let summary = store.summary(municipalities: municipalities, savedPlaces: savedPlaces, visitedPrefectures: visitedPrefectures)
@@ -18,7 +20,20 @@ struct PrefectureExplorationScreen: View {
         List {
             if let prefecture {
                 Section {
-                    ExplorationProgressCard(title: "\(name)の市区町村制覇率", progress: prefecture.progress)
+                    HStack(alignment: .top, spacing: 12) {
+                        ExplorationProgressCard(title: "\(name)の市区町村制覇率", progress: prefecture.progress)
+                        // 読み込み前も枠は確保し、地図が現れたときに文字の折り返しが変わって揺れないようにする。
+                        Group {
+                            if let prefectureMap = silhouetteStore?.prefectureMaps[prefectureCode] {
+                                // 塗りを隣の踏破率と一致させるため、踏破率と同じ訪問済みコードを使う。
+                                SilhouetteMapView(map: prefectureMap, visitedCodes: prefecture.visitedCodes)
+                                    .transition(.opacity)
+                            }
+                        }
+                        .frame(width: SilhouetteMapStore.progressMapSize, height: SilhouetteMapStore.progressMapSize)
+                        .padding(.top, 8)
+                        .animation(.easeOut(duration: 0.25), value: silhouetteStore?.prefectureMaps[prefectureCode] != nil)
+                    }
                 }
                 Section {
                     let entries = prefecture.visitedMunicipalities
@@ -48,6 +63,7 @@ struct PrefectureExplorationScreen: View {
                 }
             }
         }
+        .task { await silhouetteStore?.loadPrefectureMapIfNeeded(code: prefectureCode) }
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .alert("削除できませんでした", isPresented: Binding(

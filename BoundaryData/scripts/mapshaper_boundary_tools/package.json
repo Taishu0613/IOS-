@@ -1,0 +1,12 @@
+{
+  "name": "yorimichi-boundary-build",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Build four-LOD N03 2026 boundary resources using Mapshaper",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "mapshaper": "0.7.65"
+  }
+}
